@@ -6,13 +6,19 @@ import alebuc.puzzleagenda.application.activity.EditActivity;
 import alebuc.puzzleagenda.application.activity.ListActivities;
 import alebuc.puzzleagenda.application.day.GetHorizon;
 import alebuc.puzzleagenda.application.day.ViewDay;
+import alebuc.puzzleagenda.application.routine.CreateRoutineEntry;
+import alebuc.puzzleagenda.application.routine.DeleteRoutineEntry;
+import alebuc.puzzleagenda.application.routine.EditRoutineEntry;
 import alebuc.puzzleagenda.application.timeblock.CreateTimeBlock;
 import alebuc.puzzleagenda.application.timeblock.DeleteTimeBlock;
 import alebuc.puzzleagenda.application.timeblock.EditTimeBlock;
 import alebuc.puzzleagenda.application.timeblock.MoveTimeBlock;
 import alebuc.puzzleagenda.domain.port.ActivityRepository;
 import alebuc.puzzleagenda.domain.port.HorizonStateRepository;
+import alebuc.puzzleagenda.domain.port.MaterializedDayRepository;
+import alebuc.puzzleagenda.domain.port.RoutineTemplateRepository;
 import alebuc.puzzleagenda.domain.port.TimeBlockRepository;
+import alebuc.puzzleagenda.domain.service.MaterializationService;
 import alebuc.puzzleagenda.domain.service.OverlapPolicy;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -39,14 +45,26 @@ public class UseCaseConfig {
     }
 
     @Bean
+    public MaterializationService materializationService() {
+        return new MaterializationService();
+    }
+
+    @Bean
     public GetHorizon getHorizon(HorizonStateRepository horizonStateRepository, Clock clock) {
         return new GetHorizon(horizonStateRepository, clock);
     }
 
     @Bean
     public ViewDay viewDay(
-            TimeBlockRepository timeBlockRepository, HorizonStateRepository horizonStateRepository, Clock clock) {
-        return new ViewDay(timeBlockRepository, horizonStateRepository, clock);
+            TimeBlockRepository timeBlockRepository,
+            HorizonStateRepository horizonStateRepository,
+            RoutineTemplateRepository routineTemplateRepository,
+            MaterializedDayRepository materializedDayRepository,
+            MaterializationService materializationService,
+            Clock clock) {
+        return new ViewDay(
+                timeBlockRepository, horizonStateRepository, routineTemplateRepository,
+                materializedDayRepository, materializationService, clock);
     }
 
     @Bean
@@ -93,5 +111,20 @@ public class UseCaseConfig {
     @Bean
     public DeleteActivity deleteActivity(ActivityRepository activityRepository, TimeBlockRepository timeBlockRepository) {
         return new DeleteActivity(activityRepository, timeBlockRepository);
+    }
+
+    @Bean
+    public CreateRoutineEntry createRoutineEntry(RoutineTemplateRepository routineTemplateRepository) {
+        return new CreateRoutineEntry(routineTemplateRepository);
+    }
+
+    @Bean
+    public EditRoutineEntry editRoutineEntry(RoutineTemplateRepository routineTemplateRepository) {
+        return new EditRoutineEntry(routineTemplateRepository);
+    }
+
+    @Bean
+    public DeleteRoutineEntry deleteRoutineEntry(RoutineTemplateRepository routineTemplateRepository) {
+        return new DeleteRoutineEntry(routineTemplateRepository);
     }
 }

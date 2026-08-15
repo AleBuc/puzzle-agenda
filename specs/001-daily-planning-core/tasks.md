@@ -414,55 +414,104 @@ copy, then confirm a later template change does not alter that already-materiali
 
 ### Tests for User Story 4
 
-- [ ] T057 [P] [US4] Domain unit tests for `RoutineTemplateEntry` overlap validation using the
+- [X] T057 [P] [US4] Domain unit tests for `RoutineTemplateEntry` overlap validation using the
       two-day projection rule in
       `backend/domain/src/test/java/alebuc/puzzleagenda/domain/routine/RoutineTemplateEntryTest.java`
-      (FR-016)
-- [ ] T058 [P] [US4] Parameterized domain unit tests for `MaterializationService` clipping (full
+      (FR-016). **Correctness issue found and fixed while writing this**: naively projecting both
+      entries onto the *same* reference day and comparing does not reproduce FR-016's own worked
+      example (sleep 23:00-07:00 vs. an entry from 06:30-07:00) — projected onto the same day,
+      sleep's tail lands on day D+1 while a same-day 06:30-07:00 entry lands on day D's morning;
+      they'd never overlap under that scheme. The correct model: every entry recurs daily, so
+      checking day offsets `{-1, 0, +1}` between the two entries' projections is what actually
+      reproduces the example (see `RoutineTemplateEntry.conflictsWith`'s Javadoc for the full
+      reasoning). Tests assert `conflictsWith` directly rather than raw same-day projection.
+- [X] T058 [P] [US4] Parameterized domain unit tests for `MaterializationService` clipping (full
       coverage → zero blocks, partial clip, split into two sub-intervals, spans midnight,
       spillover from/into an adjacent day) in
       `backend/domain/src/test/java/alebuc/puzzleagenda/domain/service/MaterializationServiceTest.java`
-      (FR-017; spec Edge Cases worked examples)
-- [ ] T059 [P] [US4] Infrastructure contract tests for routine-template CRUD and
+      (FR-017; spec Edge Cases worked examples). **Documented ambiguity resolution**: spec.md's
+      two sleep-23:00-07:00 worked examples are inconsistent if read fully literally — the
+      02:00-03:00 example explicitly produces two blocks, but the 06:00-06:30-jog example's
+      prose ("clipped to 23:00-06:00, stopping where the jog starts") doesn't mention the
+      06:30-07:00 remainder. Since FR-017's general rule and research.md §3 both mandate
+      producing one block per maximal free sub-interval, and the jog example doesn't contradict
+      that when read as a partial/leading-clip illustration rather than a complete-output spec,
+      this implementation produces the trailing remainder too — see
+      `MaterializationService`'s class-level Javadoc for the full note. Verified live against
+      quickstart.md's own worked example.
+- [X] T059 [P] [US4] Infrastructure contract tests for routine-template CRUD and
       materialization-on-first-view via `GET /api/days/{date}` (Spring Boot Test +
       Testcontainers) in
-      `backend/infrastructure/src/test/java/alebuc/puzzleagenda/infrastructure/rest/RoutineTemplateControllerIT.java`
+      `backend/infrastructure/src/test/java/alebuc/puzzleagenda/infrastructure/rest/RoutineTemplateControllerIT.java`.
+      **Gaps hit while writing this**: (1) same `Map<?, ?>` → `Map<String, Object>` wildcard-
+      capture fix as T038; (2) testing "a past day is never materialized" needs a controllable
+      clock — Day 1 always becomes *today at the moment of establishment*, never the day
+      targeted, so there is no way to make a genuinely past day reachable without simulating time
+      actually passing. Added a mutable test `Clock` (`@Primary`, distinct bean name from
+      `UseCaseConfig.clock()` to avoid a name collision) that the test advances mid-run. It also
+      needed an explicit `@Import(...)` on the test class — the nested `@TestConfiguration` was
+      not auto-detected, apparently because `@SpringBootTest(classes = TestApplication.class)`
+      already specifies configuration classes explicitly.
 
 ### Implementation for User Story 4
 
-- [ ] T060 [US4] Implement the `RoutineTemplateEntry` entity with two-day-projection overlap
+- [X] T060 [US4] Implement the `RoutineTemplateEntry` entity with two-day-projection overlap
       validation in
       `backend/domain/src/main/java/alebuc/puzzleagenda/domain/routine/RoutineTemplateEntry.java`
-      (depends on T009)
-- [ ] T061 [US4] Implement `MaterializationService` (project each entry onto the target day,
+      (depends on T009). The overlap check is `RoutineTemplateEntry.conflictsWith(other)` (see
+      T057's note for why same-day projection alone is wrong). The `RoutineTemplateRepository`
+      port is also defined here, alongside the entity, per the same deferral pattern as
+      T024/T040 — this was the last of the five ports data-model.md calls for; see the updated
+      `domain/port/package-info.java`.
+- [X] T061 [US4] Implement `MaterializationService` (project each entry onto the target day,
       subtract intersecting existing blocks, emit one `ROUTINE` `TimeBlock` per maximal free
       sub-interval) in
       `backend/domain/src/main/java/alebuc/puzzleagenda/domain/service/MaterializationService.java`
-      (depends on T024, T060; research.md §3)
-- [ ] T062 [US4] Implement `CreateRoutineEntry`, `EditRoutineEntry`, `DeleteRoutineEntry` in
+      (depends on T024, T060; research.md §3). Pure/stateless, no repository dependency — the
+      caller (`ViewDay`, T063) supplies both the template entries and a pre-fetched list of
+      candidate blocks, keeping this service unit-testable with plain constructed `TimeBlock`s
+      (matches T058's "parameterized domain unit tests" framing).
+- [X] T062 [US4] Implement `CreateRoutineEntry`, `EditRoutineEntry`, `DeleteRoutineEntry` in
       `backend/application/src/main/java/alebuc/puzzleagenda/application/routine/CreateRoutineEntry.java`,
       `.../EditRoutineEntry.java`, `.../DeleteRoutineEntry.java` (depends on T060)
-- [ ] T063 [US4] Wire `ViewDay` to run `MaterializationService` against the current routine
+- [X] T063 [US4] Wire `ViewDay` to run `MaterializationService` against the current routine
       template and persist a `MaterializedDay` marker on first-ever access to a today-or-future
       day (idempotent; never applied to a past day) in
       `backend/application/src/main/java/alebuc/puzzleagenda/application/day/ViewDay.java`
-      (depends on T029, T061; research.md §4)
-- [ ] T064 [US4] Implement the `RoutineTemplateRepository` and `MaterializedDayRepository`
+      (depends on T029, T061; research.md §4). Replaces T029/US1's hardcoded `materialized =
+      false`. Candidate blocks for clipping are fetched from a single `[day-1, day+2)` window
+      (research.md §3: a block can sit on the materialized day, spill into it from the previous
+      day, or already sit on the following day — no single entry's projected span reaches
+      further than that).
+- [X] T064 [US4] Implement the `RoutineTemplateRepository` and `MaterializedDayRepository`
       persistence adapters in
       `backend/infrastructure/src/main/java/alebuc/puzzleagenda/infrastructure/persistence/RoutineTemplateRepositoryAdapter.java`
-      and `.../MaterializedDayRepositoryAdapter.java` (depends on T007, T008, T014)
-- [ ] T065 [US4] Implement `RoutineTemplateController`
+      and `.../MaterializedDayRepositoryAdapter.java` (depends on T007, T008, T014). The latter
+      was the one deferred, uncalled port implementation flagged back in T018's note — `ViewDay`
+      finally calls it now.
+- [X] T065 [US4] Implement `RoutineTemplateController`
       (`GET`/`POST`/`PUT`/`DELETE /api/routine-template/entries`) in
       `backend/infrastructure/src/main/java/alebuc/puzzleagenda/infrastructure/rest/RoutineTemplateController.java`
       (depends on T062)
-- [ ] T066 [P] [US4] Implement the `useRoutineTemplate()` composable in
+- [X] T066 [P] [US4] Implement the `useRoutineTemplate()` composable in
       `frontend/src/composables/useRoutineTemplate.js`
-- [ ] T067 [P] [US4] Implement `RoutineEntryForm` in
+- [X] T067 [P] [US4] Implement `RoutineEntryForm` in
       `frontend/src/components/RoutineEntryForm.vue`
-- [ ] T068 [US4] Implement `RoutineTemplateView` (create/edit/delete template entries) in
-      `frontend/src/views/RoutineTemplateView.vue` (depends on T066, T067)
+- [X] T068 [US4] Implement `RoutineTemplateView` (create/edit/delete template entries) in
+      `frontend/src/views/RoutineTemplateView.vue` (depends on T066, T067). Also added a
+      `/routine-template` route to `frontend/src/router/index.js` and a nav link in
+      `frontend/src/App.vue`, same reasoning as T046/US2's nav addition.
 
-**Checkpoint**: All four user stories independently functional.
+**Checkpoint**: All four user stories independently functional. Verified end-to-end against a
+live PostgreSQL 16 container and a live backend process, beyond the automated suites (65 backend
+unit tests + 36 Testcontainers-backed integration tests, all passing; frontend: 10 Vitest tests,
+`npm run build` green): created a midnight-spanning Sleep template entry, confirmed a
+not-yet-visited day materializes it (`endsNextDay: true`), confirmed a template edit afterward
+does not alter that already-materialized day (FR-019), confirmed materialization clips against a
+pre-existing block on the following day producing exactly the leading-clip-plus-trailing-
+remainder split described in T058's note, and confirmed an overlapping template entry is
+rejected with 409 `TEMPLATE_ENTRY_OVERLAP` — this exactly replays quickstart.md's own §4/§5
+walkthrough.
 
 ---
 

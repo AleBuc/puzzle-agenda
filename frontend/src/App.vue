@@ -9,6 +9,7 @@
       Today
     </router-link>
     <router-link :to="{ name: 'backlog' }">Backlog</router-link>
+    <router-link :to="{ name: 'routine-template' }">Routine template</router-link>
   </nav>
   <router-view />
 </template>

@@ -1,20 +1,21 @@
 /**
  * Repository ports (domain-owned interfaces implemented by infrastructure
- * adapters).
+ * adapters), each defined alongside the entity it persists, in the
+ * user-story task that first needed it:
  *
  * <ul>
  *   <li>{@link alebuc.puzzleagenda.domain.port.HorizonStateRepository} and
  *       {@link alebuc.puzzleagenda.domain.port.MaterializedDayRepository} —
- *       defined in the Foundational phase (their entities already existed).</li>
+ *       Foundational phase.</li>
  *   <li>{@link alebuc.puzzleagenda.domain.port.TimeBlockRepository} —
- *       defined in tasks.md T024/US1, alongside the {@code TimeBlock} entity.</li>
+ *       tasks.md T024/US1.</li>
  *   <li>{@link alebuc.puzzleagenda.domain.port.ActivityRepository} —
- *       defined in tasks.md T040/US2, alongside the {@code Activity} entity.</li>
+ *       tasks.md T040/US2.</li>
+ *   <li>{@link alebuc.puzzleagenda.domain.port.RoutineTemplateRepository} —
+ *       tasks.md T060/US4.</li>
  * </ul>
  *
- * <p>{@code RoutineTemplateRepository} is intentionally <strong>not</strong>
- * defined yet: its entity ({@code RoutineTemplateEntry}) is introduced in
- * tasks.md T060/US4, where the port is added alongside it, to avoid a
- * forward reference to a type that doesn't exist yet.
+ * <p>All five ports (matching all five entities in data-model.md) now
+ * exist; this deferral note no longer applies to any pending task.
  */
 package alebuc.puzzleagenda.domain.port;

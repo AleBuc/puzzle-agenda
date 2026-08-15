@@ -5,8 +5,8 @@ function todayIsoDate() {
 }
 
 // Day-navigation route skeleton (tasks.md T019), day view filled in by User
-// Story 1 (T036). BacklogView (T046, US2) added here; RoutineTemplateView
-// route is added alongside its view in User Story 4.
+// Story 1 (T036). BacklogView (T046, US2) and RoutineTemplateView (T068,
+// US4) added here alongside their views.
 const routes = [
   { path: '/', redirect: () => `/days/${todayIsoDate()}` },
   {
@@ -19,6 +19,11 @@ const routes = [
     path: '/backlog',
     name: 'backlog',
     component: () => import('../views/BacklogView.vue'),
+  },
+  {
+    path: '/routine-template',
+    name: 'routine-template',
+    component: () => import('../views/RoutineTemplateView.vue'),
   },
 ]
 

@@ -6,6 +6,8 @@ import alebuc.puzzleagenda.domain.exception.ActivityNotFoundException;
 import alebuc.puzzleagenda.domain.exception.DayBeyondForwardHorizonException;
 import alebuc.puzzleagenda.domain.exception.DayNotReachableException;
 import alebuc.puzzleagenda.domain.exception.InvalidTimeRangeException;
+import alebuc.puzzleagenda.domain.exception.RoutineTemplateEntryNotFoundException;
+import alebuc.puzzleagenda.domain.exception.TemplateEntryOverlapException;
 import alebuc.puzzleagenda.domain.exception.TimeBlockNotFoundException;
 import alebuc.puzzleagenda.domain.exception.TimeBlockOverlapException;
 import org.springframework.http.HttpStatus;
@@ -16,9 +18,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 /**
  * Maps domain/application exceptions to the {@code { "reason", "message" }}
  * bodies and status codes in contracts/api.md's Error Conventions table.
- *
- * <p>{@code TEMPLATE_ENTRY_OVERLAP} gets its handler added alongside the
- * exception that introduces it in tasks.md T060/US4.
+ * All six named business-rule cases now have a handler.
  */
 @RestControllerAdvice
 public class ApiExceptionHandler {
@@ -69,6 +69,18 @@ public class ApiExceptionHandler {
     public ResponseEntity<ErrorBody> handleActivityNotAvailable(ActivityNotAvailableException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
                 .body(new ErrorBody("ACTIVITY_NOT_AVAILABLE", ex.getMessage()));
+    }
+
+    @ExceptionHandler(TemplateEntryOverlapException.class)
+    public ResponseEntity<ErrorBody> handleTemplateEntryOverlap(TemplateEntryOverlapException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ErrorBody("TEMPLATE_ENTRY_OVERLAP", ex.getMessage()));
+    }
+
+    @ExceptionHandler(RoutineTemplateEntryNotFoundException.class)
+    public ResponseEntity<ErrorBody> handleRoutineTemplateEntryNotFound(RoutineTemplateEntryNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(new ErrorBody("ROUTINE_TEMPLATE_ENTRY_NOT_FOUND", ex.getMessage()));
     }
 
     /** Catch-all for domain constructor invariants (e.g. a missing activityId on a PLANNED_ACTIVITY block). */

@@ -90,4 +90,27 @@
     </dependency>
   </dependencies>
 
+  <build>
+    <plugins>
+      <!--
+        *IT.java classes (Spring Boot Test + Testcontainers) run under
+        `mvn verify`, not plain `mvn test` — Maven's standard convention for
+        separating fast unit tests (surefire) from slower integration tests
+        (failsafe) that need Docker.
+      -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-failsafe-plugin</artifactId>
+        <executions>
+          <execution>
+            <goals>
+              <goal>integration-test</goal>
+              <goal>verify</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
 </project>

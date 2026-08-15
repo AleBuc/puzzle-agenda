@@ -136,65 +136,105 @@ overlaps one of them and confirm it is rejected (spec.md US1).
 
 ### Tests for User Story 1
 
-- [ ] T020 [P] [US1] Parameterized domain unit tests for `OverlapPolicy` (adjacent-allowed,
+- [X] T020 [P] [US1] Parameterized domain unit tests for `OverlapPolicy` (adjacent-allowed,
       overlap-rejected, midnight-spanning two-day cases) in
       `backend/domain/src/test/java/alebuc/puzzleagenda/domain/service/OverlapPolicyTest.java`
       (FR-008, FR-014; spec Acceptance Scenarios 1–4)
-- [ ] T021 [P] [US1] Application unit tests (mocked repositories) for `CreateTimeBlock`,
+- [X] T021 [P] [US1] Application unit tests (mocked repositories) for `CreateTimeBlock`,
       `EditTimeBlock`, `DeleteTimeBlock` in
       `backend/application/src/test/java/alebuc/puzzleagenda/application/timeblock/TimeBlockUseCasesTest.java`
-- [ ] T022 [P] [US1] Infrastructure contract tests for `POST /api/days/{date}/blocks`,
+- [X] T022 [P] [US1] Infrastructure contract tests for `POST /api/days/{date}/blocks`,
       `PUT /api/blocks/{id}`, `DELETE /api/blocks/{id}`, and the database `EXCLUDE` constraint,
       using Spring Boot Test + Testcontainers, in
-      `backend/infrastructure/src/test/java/alebuc/puzzleagenda/infrastructure/rest/TimeBlockControllerIT.java`
-- [ ] T023 [P] [US1] Frontend component test for `DayTimeline` (chronological order, visible
+      `backend/infrastructure/src/test/java/alebuc/puzzleagenda/infrastructure/rest/TimeBlockControllerIT.java`.
+      **Gaps filled during implementation**: (1) `*IT.java` classes are Maven Failsafe's
+      convention, not Surefire's — added the `maven-failsafe-plugin` to
+      `backend/infrastructure/pom.xml` (bound to `integration-test`/`verify`) since nothing ran
+      this file otherwise; (2) `TestRestTemplate` does not exist anywhere in Spring Boot 4.1's
+      split modules — used `org.springframework.web.client.RestClient` (already on the classpath
+      via `spring-web`) against `@LocalServerPort` instead; (3) status assertions compare the
+      numeric code, not the `HttpStatus` enum constant — 422's reason phrase was renamed from
+      `UNPROCESSABLE_ENTITY` to `UNPROCESSABLE_CONTENT` per RFC 9110, so enum-identity comparison
+      is not a stable choice going forward. Also added
+      `backend/infrastructure/src/test/java/alebuc/puzzleagenda/infrastructure/TestApplication.java`
+      (a minimal `@SpringBootAppplication`) since infrastructure's tests have no access to the
+      real one in `bootstrap` (reverse dependency direction).
+- [X] T023 [P] [US1] Frontend component test for `DayTimeline` (chronological order, visible
       gaps, per-type styling) in `frontend/tests/DayTimeline.spec.js`
 
 ### Implementation for User Story 1
 
-- [ ] T024 [US1] Implement the `TimeBlock` entity (start/end via `TimeRange`, derived `day`,
+- [X] T024 [US1] Implement the `TimeBlock` entity (start/end via `TimeRange`, derived `day`,
       type immutable after creation) in
       `backend/domain/src/main/java/alebuc/puzzleagenda/domain/timeblock/TimeBlock.java`
-      (depends on T009, T010)
-- [ ] T025 [US1] Implement the `OverlapPolicy` domain service (half-open interval intersection)
+      (depends on T009, T010). Per the deferral documented in `domain/port/package-info.java`
+      (tasks.md T014), the `TimeBlockRepository` port is also defined here, alongside the entity:
+      `backend/domain/src/main/java/alebuc/puzzleagenda/domain/port/TimeBlockRepository.java`.
+- [X] T025 [US1] Implement the `OverlapPolicy` domain service (half-open interval intersection)
       in `backend/domain/src/main/java/alebuc/puzzleagenda/domain/service/OverlapPolicy.java`
-      (depends on T024; research.md §1)
-- [ ] T026 [US1] Implement `CreateTimeBlock` (validates horizon reachability via `HorizonState`,
+      (depends on T024; research.md §1). Also added
+      `backend/domain/src/main/java/alebuc/puzzleagenda/domain/exception/TimeBlockOverlapException.java`
+      (409 `TIME_BLOCK_OVERLAP`) and
+      `.../exception/TimeBlockNotFoundException.java` (404, used by T027/T028), plus a catch-all
+      `IllegalArgumentException` → 400 `INVALID_REQUEST` handler in `ApiExceptionHandler` for
+      `TimeBlock`'s own constructor invariant (e.g. a missing `activityId` on a
+      `PLANNED_ACTIVITY` block) — none of these three are in contracts/api.md's six-case Error
+      Conventions table, consistent with how plain field-validation failures elsewhere (e.g.
+      `POST /api/activities`) aren't either.
+- [X] T026 [US1] Implement `CreateTimeBlock` (validates horizon reachability via `HorizonState`,
       overlap via `OverlapPolicy`, establishes Day 1 on the first-ever placement) in
       `backend/application/src/main/java/alebuc/puzzleagenda/application/timeblock/CreateTimeBlock.java`
       (depends on T012, T025; research.md §5)
-- [ ] T027 [US1] Implement `EditTimeBlock` (start/end/name edit, same day, overlap re-check) in
+- [X] T027 [US1] Implement `EditTimeBlock` (start/end/name edit, same day, overlap re-check) in
       `backend/application/src/main/java/alebuc/puzzleagenda/application/timeblock/EditTimeBlock.java`
-      (depends on T025)
-- [ ] T028 [US1] Implement `DeleteTimeBlock` (`ROUTINE`/`CONSTRAINED`: plain removal) in
+      (depends on T025). No horizon re-check: the block's day was already validated reachable at
+      creation, and the forward bound only ever grows over time, so re-checking would be a
+      structural no-op — consistent with contracts/api.md's `PUT /api/blocks/{id}` not
+      documenting a horizon-related error for this endpoint.
+- [X] T028 [US1] Implement `DeleteTimeBlock` (`ROUTINE`/`CONSTRAINED`: plain removal) in
       `backend/application/src/main/java/alebuc/puzzleagenda/application/timeblock/DeleteTimeBlock.java`
       (depends on T024)
-- [ ] T029 [US1] Implement `ViewDay` returning a day's blocks in chronological order (US4 wires
+- [X] T029 [US1] Implement `ViewDay` returning a day's blocks in chronological order (US4 wires
       in real materialization later; here it is a pass-through with reachability checks) in
       `backend/application/src/main/java/alebuc/puzzleagenda/application/day/ViewDay.java`
-      (depends on T012, T013)
-- [ ] T030 [US1] Implement the `TimeBlockRepository` persistence adapter, including mapping
+      (depends on T012, T013). `materialized` is unconditionally `false`: nothing has ever
+      actually run materialization yet, since `MaterializedDayRepository` has no adapter until
+      T064/US4.
+- [X] T030 [US1] Implement the `TimeBlockRepository` persistence adapter, including mapping
       to/from the `span tsrange` column, in
       `backend/infrastructure/src/main/java/alebuc/puzzleagenda/infrastructure/persistence/TimeBlockRepositoryAdapter.java`
-      (depends on T006, T014)
-- [ ] T031 [US1] Implement `DayController#getDay` (`GET /api/days/{date}`, 404
+      (depends on T006, T014). Maps only the plain `start_at`/`end_at` columns — `span` is
+      `GENERATED ALWAYS`, so it's queried (via `&&`, for `findIntersecting`) but never written.
+- [X] T031 [US1] Implement `DayController#getDay` (`GET /api/days/{date}`, 404
       `DAY_NOT_REACHABLE` / 422 `DAY_BEYOND_FORWARD_HORIZON`) in
       `backend/infrastructure/src/main/java/alebuc/puzzleagenda/infrastructure/rest/DayController.java`
       (depends on T029)
-- [ ] T032 [US1] Implement `TimeBlockController` (`POST /api/days/{date}/blocks`,
+- [X] T032 [US1] Implement `TimeBlockController` (`POST /api/days/{date}/blocks`,
       `PUT /api/blocks/{id}`, `DELETE /api/blocks/{id}`) in
       `backend/infrastructure/src/main/java/alebuc/puzzleagenda/infrastructure/rest/TimeBlockController.java`
-      (depends on T026, T027, T028)
-- [ ] T033 [P] [US1] Implement the `useDaySchedule(date)` composable calling the day/blocks API
+      (depends on T026, T027, T028). Added a shared
+      `backend/infrastructure/src/main/java/alebuc/puzzleagenda/infrastructure/rest/TimeBlockResponse.java`
+      DTO, reused by `DayController#getDay` — both endpoints render the same block shape.
+- [X] T033 [P] [US1] Implement the `useDaySchedule(date)` composable calling the day/blocks API
       in `frontend/src/composables/useDaySchedule.js`
-- [ ] T034 [P] [US1] Implement `TimeBlockCard` (visual distinction by `BlockType`) in
+- [X] T034 [P] [US1] Implement `TimeBlockCard` (visual distinction by `BlockType`) in
       `frontend/src/components/TimeBlockCard.vue`
-- [ ] T035 [US1] Implement `DayTimeline` (chronological list, computed free-time gaps between
+- [X] T035 [US1] Implement `DayTimeline` (chronological list, computed free-time gaps between
       blocks) in `frontend/src/components/DayTimeline.vue` (depends on T033, T034)
-- [ ] T036 [US1] Implement `DayView` (day-to-day navigation bounded by the horizon, add/edit/
-      delete block forms) in `frontend/src/views/DayView.vue` (depends on T035)
+- [X] T036 [US1] Implement `DayView` (day-to-day navigation bounded by the horizon, add/edit/
+      delete block forms) in `frontend/src/views/DayView.vue` (depends on T035).
+      **Gap filled during implementation**: `frontend/vite.config.js` had no dev proxy, so the
+      API client's same-origin `/api/...` calls would 404 against `vite dev` (port 5173) with no
+      backend behind that path — added a `server.proxy` block forwarding `/api` to
+      `http://localhost:8080`; verified with a live backend that the proxy round-trips real data.
 
-**Checkpoint**: User Story 1 is independently functional and testable.
+**Checkpoint**: User Story 1 is independently functional and testable. Verified end-to-end
+against a live PostgreSQL 16 container and a live backend process (not just the automated test
+suites): create/adjacent/overlap/granularity/forward-horizon/before-Day-1, edit, delete, a
+midnight-spanning block, and Day 1 establishment on first-ever placement all behave exactly per
+spec.md and contracts/api.md. The frontend build and Vitest suite both pass and the dev server
+was confirmed to serve the SPA and proxy `/api` correctly; the UI was **not** visually verified
+in an actual browser — no browser-automation tool was available in this session.
 
 ---
 

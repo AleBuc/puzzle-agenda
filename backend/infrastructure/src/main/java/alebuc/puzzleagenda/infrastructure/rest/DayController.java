@@ -1,27 +1,26 @@
 package alebuc.puzzleagenda.infrastructure.rest;
 
 import alebuc.puzzleagenda.application.day.GetHorizon;
+import alebuc.puzzleagenda.application.day.ViewDay;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
+import java.util.List;
 
-/**
- * Day and horizon endpoints (contracts/api.md "Horizon" and "Days" sections).
- *
- * <p>Only {@code GET /api/horizon} is implemented here in the Foundational
- * phase. {@code GET /api/days/{date}} (with its materialization side effect)
- * is added in tasks.md T031/US1.
- */
+/** Day and horizon endpoints (contracts/api.md "Horizon" and "Days" sections). */
 @RestController
 @RequestMapping("/api")
 public class DayController {
 
     private final GetHorizon getHorizon;
+    private final ViewDay viewDay;
 
-    public DayController(GetHorizon getHorizon) {
+    public DayController(GetHorizon getHorizon, ViewDay viewDay) {
         this.getHorizon = getHorizon;
+        this.viewDay = viewDay;
     }
 
     @GetMapping("/horizon")
@@ -30,6 +29,16 @@ public class DayController {
         return new HorizonResponse(view.day1(), view.forwardBound());
     }
 
+    @GetMapping("/days/{date}")
+    public DayResponse getDay(@PathVariable LocalDate date) {
+        ViewDay.DayView view = viewDay.execute(date);
+        List<TimeBlockResponse> blocks = view.blocks().stream().map(TimeBlockResponse::from).toList();
+        return new DayResponse(view.date(), view.materialized(), blocks);
+    }
+
     public record HorizonResponse(LocalDate day1, LocalDate forwardBound) {
+    }
+
+    public record DayResponse(LocalDate date, boolean materialized, List<TimeBlockResponse> blocks) {
     }
 }

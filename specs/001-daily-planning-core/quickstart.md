@@ -8,21 +8,41 @@ duplicated here.
 ## Prerequisites
 
 - JDK 25, Maven, Node 20+/npm
-- PostgreSQL 16+ reachable (local instance or Docker), with Flyway
-  migrations applied
-- `docker` available if running infrastructure tests locally
-  (Testcontainers)
+- `docker`, for the local PostgreSQL 16+ instance (see Setup below) and for
+  the infrastructure module's own tests (Testcontainers) — Flyway
+  migrations run automatically on backend startup, no manual step needed
 
 ## Setup
 
 ```bash
-# Backend (from backend/)
-mvn -pl bootstrap -am spring-boot:run
+# PostgreSQL — matches the db/user/password/port
+# backend/bootstrap/src/main/resources/application.yml expects by default.
+# Skip this if you already have a Postgres reachable on localhost:5432 with
+# these credentials (or override via --spring.datasource.* flags below).
+docker run -d --name puzzle-agenda-db \
+  -e POSTGRES_DB=puzzle_agenda -e POSTGRES_USER=puzzle_agenda -e POSTGRES_PASSWORD=puzzle_agenda \
+  -p 5432:5432 postgres:16
+# Wait for it to accept connections before starting the backend:
+until docker exec puzzle-agenda-db pg_isready -U puzzle_agenda >/dev/null 2>&1; do sleep 1; done
 
-# Frontend (from frontend/), separate shell
+# Backend (from backend/) — one-time build of all modules, then run just bootstrap.
+# `-pl bootstrap -am spring-boot:run` does NOT work: for a direct goal (not a
+# lifecycle phase), Maven's reactor executes it against every project it resolves,
+# including the parent aggregator pom (packaging=pom, no main class) — it fails
+# before ever reaching bootstrap. Installing once means `-am` isn't needed per run;
+# Maven resolves domain/application/infrastructure from ~/.m2 instead.
+mvn install -DskipTests
+mvn -pl bootstrap spring-boot:run
+
+# Frontend (from frontend/), separate shell — `npm run dev` proxies /api/* to
+# http://localhost:8080 (see vite.config.js), so the backend above must be running.
 npm install
 npm run dev
 ```
+
+Re-run `mvn install -DskipTests` from `backend/` after changing `domain`,
+`application`, or `infrastructure` — `mvn -pl bootstrap spring-boot:run` alone
+reuses whatever is already installed in `~/.m2`, not the latest source.
 
 The backend serves the REST API (default `http://localhost:8080`); the
 commands below use `curl` against it directly, independent of the

@@ -1,7 +1,13 @@
 package alebuc.puzzleagenda.infrastructure.config;
 
 import alebuc.puzzleagenda.application.day.GetHorizon;
+import alebuc.puzzleagenda.application.day.ViewDay;
+import alebuc.puzzleagenda.application.timeblock.CreateTimeBlock;
+import alebuc.puzzleagenda.application.timeblock.DeleteTimeBlock;
+import alebuc.puzzleagenda.application.timeblock.EditTimeBlock;
 import alebuc.puzzleagenda.domain.port.HorizonStateRepository;
+import alebuc.puzzleagenda.domain.port.TimeBlockRepository;
+import alebuc.puzzleagenda.domain.service.OverlapPolicy;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -22,7 +28,37 @@ public class UseCaseConfig {
     }
 
     @Bean
+    public OverlapPolicy overlapPolicy() {
+        return new OverlapPolicy();
+    }
+
+    @Bean
     public GetHorizon getHorizon(HorizonStateRepository horizonStateRepository, Clock clock) {
         return new GetHorizon(horizonStateRepository, clock);
+    }
+
+    @Bean
+    public ViewDay viewDay(
+            TimeBlockRepository timeBlockRepository, HorizonStateRepository horizonStateRepository, Clock clock) {
+        return new ViewDay(timeBlockRepository, horizonStateRepository, clock);
+    }
+
+    @Bean
+    public CreateTimeBlock createTimeBlock(
+            TimeBlockRepository timeBlockRepository,
+            HorizonStateRepository horizonStateRepository,
+            OverlapPolicy overlapPolicy,
+            Clock clock) {
+        return new CreateTimeBlock(timeBlockRepository, horizonStateRepository, overlapPolicy, clock);
+    }
+
+    @Bean
+    public EditTimeBlock editTimeBlock(TimeBlockRepository timeBlockRepository, OverlapPolicy overlapPolicy) {
+        return new EditTimeBlock(timeBlockRepository, overlapPolicy);
+    }
+
+    @Bean
+    public DeleteTimeBlock deleteTimeBlock(TimeBlockRepository timeBlockRepository) {
+        return new DeleteTimeBlock(timeBlockRepository);
     }
 }

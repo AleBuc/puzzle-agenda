@@ -17,10 +17,12 @@ public class DayController {
 
     private final GetHorizon getHorizon;
     private final ViewDay viewDay;
+    private final TimeBlockResponseAssembler responseAssembler;
 
-    public DayController(GetHorizon getHorizon, ViewDay viewDay) {
+    public DayController(GetHorizon getHorizon, ViewDay viewDay, TimeBlockResponseAssembler responseAssembler) {
         this.getHorizon = getHorizon;
         this.viewDay = viewDay;
+        this.responseAssembler = responseAssembler;
     }
 
     @GetMapping("/horizon")
@@ -32,7 +34,7 @@ public class DayController {
     @GetMapping("/days/{date}")
     public DayResponse getDay(@PathVariable LocalDate date) {
         ViewDay.DayView view = viewDay.execute(date);
-        List<TimeBlockResponse> blocks = view.blocks().stream().map(TimeBlockResponse::from).toList();
+        List<TimeBlockResponse> blocks = view.blocks().stream().map(responseAssembler::toResponse).toList();
         return new DayResponse(view.date(), view.materialized(), blocks);
     }
 

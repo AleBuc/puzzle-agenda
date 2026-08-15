@@ -5,6 +5,7 @@ import alebuc.puzzleagenda.domain.exception.DayNotReachableException;
 import alebuc.puzzleagenda.domain.exception.TimeBlockNotFoundException;
 import alebuc.puzzleagenda.domain.exception.TimeBlockOverlapException;
 import alebuc.puzzleagenda.domain.horizon.HorizonState;
+import alebuc.puzzleagenda.domain.port.ActivityRepository;
 import alebuc.puzzleagenda.domain.port.HorizonStateRepository;
 import alebuc.puzzleagenda.domain.port.TimeBlockRepository;
 import alebuc.puzzleagenda.domain.service.OverlapPolicy;
@@ -47,6 +48,9 @@ class TimeBlockUseCasesTest {
     @Mock
     private HorizonStateRepository horizonStateRepository;
 
+    @Mock
+    private ActivityRepository activityRepository;
+
     private final OverlapPolicy overlapPolicy = new OverlapPolicy();
 
     private CreateTimeBlock createTimeBlock;
@@ -55,7 +59,8 @@ class TimeBlockUseCasesTest {
 
     @BeforeEach
     void setUp() {
-        createTimeBlock = new CreateTimeBlock(timeBlockRepository, horizonStateRepository, overlapPolicy, CLOCK);
+        createTimeBlock = new CreateTimeBlock(
+                timeBlockRepository, horizonStateRepository, activityRepository, overlapPolicy, CLOCK);
         editTimeBlock = new EditTimeBlock(timeBlockRepository, overlapPolicy);
         deleteTimeBlock = new DeleteTimeBlock(timeBlockRepository);
     }

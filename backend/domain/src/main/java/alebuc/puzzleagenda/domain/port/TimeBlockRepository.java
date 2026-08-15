@@ -17,6 +17,13 @@ public interface TimeBlockRepository {
 
     Optional<TimeBlock> findById(UUID id);
 
+    /**
+     * The {@code PLANNED_ACTIVITY} block currently referencing {@code activityId}, if any — at
+     * most one can exist at a time (data-model.md Activity). Added in tasks.md T053/US3, needed
+     * by {@code DeleteActivity} to cascade-delete the scheduled block.
+     */
+    Optional<TimeBlock> findByActivityId(UUID activityId);
+
     /** Blocks whose start day equals {@code day}, in chronological order (FR-020). */
     List<TimeBlock> findByDay(LocalDate day);
 

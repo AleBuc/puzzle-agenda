@@ -1,5 +1,8 @@
 package alebuc.puzzleagenda.infrastructure.rest;
 
+import alebuc.puzzleagenda.domain.exception.ActivityCurrentlyPlannedException;
+import alebuc.puzzleagenda.domain.exception.ActivityNotAvailableException;
+import alebuc.puzzleagenda.domain.exception.ActivityNotFoundException;
 import alebuc.puzzleagenda.domain.exception.DayBeyondForwardHorizonException;
 import alebuc.puzzleagenda.domain.exception.DayNotReachableException;
 import alebuc.puzzleagenda.domain.exception.InvalidTimeRangeException;
@@ -14,10 +17,8 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  * Maps domain/application exceptions to the {@code { "reason", "message" }}
  * bodies and status codes in contracts/api.md's Error Conventions table.
  *
- * <p>{@code TEMPLATE_ENTRY_OVERLAP}, {@code ACTIVITY_NOT_AVAILABLE}, and
- * {@code ACTIVITY_CURRENTLY_PLANNED} get their handlers added alongside the
- * exceptions that introduce them in later user-story tasks (tasks.md
- * T060/US4, T050/US3, T053/US3).
+ * <p>{@code TEMPLATE_ENTRY_OVERLAP} gets its handler added alongside the
+ * exception that introduces it in tasks.md T060/US4.
  */
 @RestControllerAdvice
 public class ApiExceptionHandler {
@@ -50,6 +51,24 @@ public class ApiExceptionHandler {
     public ResponseEntity<ErrorBody> handleTimeBlockNotFound(TimeBlockNotFoundException ex) {
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
                 .body(new ErrorBody("TIME_BLOCK_NOT_FOUND", ex.getMessage()));
+    }
+
+    @ExceptionHandler(ActivityNotFoundException.class)
+    public ResponseEntity<ErrorBody> handleActivityNotFound(ActivityNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                .body(new ErrorBody("ACTIVITY_NOT_FOUND", ex.getMessage()));
+    }
+
+    @ExceptionHandler(ActivityCurrentlyPlannedException.class)
+    public ResponseEntity<ErrorBody> handleActivityCurrentlyPlanned(ActivityCurrentlyPlannedException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ErrorBody("ACTIVITY_CURRENTLY_PLANNED", ex.getMessage()));
+    }
+
+    @ExceptionHandler(ActivityNotAvailableException.class)
+    public ResponseEntity<ErrorBody> handleActivityNotAvailable(ActivityNotAvailableException ex) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ErrorBody("ACTIVITY_NOT_AVAILABLE", ex.getMessage()));
     }
 
     /** Catch-all for domain constructor invariants (e.g. a missing activityId on a PLANNED_ACTIVITY block). */

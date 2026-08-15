@@ -4,10 +4,9 @@ function todayIsoDate() {
   return new Date().toISOString().slice(0, 10)
 }
 
-// Day-navigation route skeleton (tasks.md T019). DayView is a placeholder
-// until User Story 1 (T036) implements real day-to-day navigation bounded
-// by the horizon (FR-023); BacklogView/RoutineTemplateView routes are added
-// alongside their views in User Stories 2 and 4.
+// Day-navigation route skeleton (tasks.md T019), day view filled in by User
+// Story 1 (T036). BacklogView (T046, US2) added here; RoutineTemplateView
+// route is added alongside its view in User Story 4.
 const routes = [
   { path: '/', redirect: () => `/days/${todayIsoDate()}` },
   {
@@ -15,6 +14,11 @@ const routes = [
     name: 'day',
     component: () => import('../views/DayView.vue'),
     props: true,
+  },
+  {
+    path: '/backlog',
+    name: 'backlog',
+    component: () => import('../views/BacklogView.vue'),
   },
 ]
 

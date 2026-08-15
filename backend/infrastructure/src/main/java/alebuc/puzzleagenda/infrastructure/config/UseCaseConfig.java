@@ -1,10 +1,16 @@
 package alebuc.puzzleagenda.infrastructure.config;
 
+import alebuc.puzzleagenda.application.activity.CreateActivity;
+import alebuc.puzzleagenda.application.activity.DeleteActivity;
+import alebuc.puzzleagenda.application.activity.EditActivity;
+import alebuc.puzzleagenda.application.activity.ListActivities;
 import alebuc.puzzleagenda.application.day.GetHorizon;
 import alebuc.puzzleagenda.application.day.ViewDay;
 import alebuc.puzzleagenda.application.timeblock.CreateTimeBlock;
 import alebuc.puzzleagenda.application.timeblock.DeleteTimeBlock;
 import alebuc.puzzleagenda.application.timeblock.EditTimeBlock;
+import alebuc.puzzleagenda.application.timeblock.MoveTimeBlock;
+import alebuc.puzzleagenda.domain.port.ActivityRepository;
 import alebuc.puzzleagenda.domain.port.HorizonStateRepository;
 import alebuc.puzzleagenda.domain.port.TimeBlockRepository;
 import alebuc.puzzleagenda.domain.service.OverlapPolicy;
@@ -47,9 +53,10 @@ public class UseCaseConfig {
     public CreateTimeBlock createTimeBlock(
             TimeBlockRepository timeBlockRepository,
             HorizonStateRepository horizonStateRepository,
+            ActivityRepository activityRepository,
             OverlapPolicy overlapPolicy,
             Clock clock) {
-        return new CreateTimeBlock(timeBlockRepository, horizonStateRepository, overlapPolicy, clock);
+        return new CreateTimeBlock(timeBlockRepository, horizonStateRepository, activityRepository, overlapPolicy, clock);
     }
 
     @Bean
@@ -60,5 +67,31 @@ public class UseCaseConfig {
     @Bean
     public DeleteTimeBlock deleteTimeBlock(TimeBlockRepository timeBlockRepository) {
         return new DeleteTimeBlock(timeBlockRepository);
+    }
+
+    @Bean
+    public MoveTimeBlock moveTimeBlock(
+            TimeBlockRepository timeBlockRepository, HorizonStateRepository horizonStateRepository, OverlapPolicy overlapPolicy, Clock clock) {
+        return new MoveTimeBlock(timeBlockRepository, horizonStateRepository, overlapPolicy, clock);
+    }
+
+    @Bean
+    public ListActivities listActivities(ActivityRepository activityRepository) {
+        return new ListActivities(activityRepository);
+    }
+
+    @Bean
+    public CreateActivity createActivity(ActivityRepository activityRepository) {
+        return new CreateActivity(activityRepository);
+    }
+
+    @Bean
+    public EditActivity editActivity(ActivityRepository activityRepository) {
+        return new EditActivity(activityRepository);
+    }
+
+    @Bean
+    public DeleteActivity deleteActivity(ActivityRepository activityRepository, TimeBlockRepository timeBlockRepository) {
+        return new DeleteActivity(activityRepository, timeBlockRepository);
     }
 }

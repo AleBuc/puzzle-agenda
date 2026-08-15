@@ -128,14 +128,20 @@ repeated requests as safe to retry.
       "endTime": "HH:mm",
       "endsNextDay": false,
       "name": "string | null",
-      "activityId": "uuid | null"
+      "activityId": "uuid | null",
+      "activityName": "string | null"
     }
   ]
 }
 ```
 Blocks are returned in chronological order by `startAt`. `endsNextDay`
 is `true` when the block's `endAt` falls on the following calendar date
-(midnight-spanning, FR-014).
+(midnight-spanning, FR-014). `activityName` is populated only for
+`PLANNED_ACTIVITY` blocks (`null` otherwise): per data-model.md, a
+planned-activity block's display label is its linked Activity's name, not
+its own `name` field (which is unused for that type) — this field is what
+actually carries that label to the frontend, since nothing else in this
+response shape did.
 
 **404 Not Found** — `date` is earlier than `day1` (`DAY_NOT_REACHABLE`,
 see Error Conventions) (FR-009, FR-023, edge case: days before Day 1 do

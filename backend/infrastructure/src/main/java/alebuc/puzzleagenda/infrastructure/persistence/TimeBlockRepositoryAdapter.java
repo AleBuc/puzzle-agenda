@@ -44,6 +44,15 @@ public class TimeBlockRepositoryAdapter implements TimeBlockRepository {
     }
 
     @Override
+    public Optional<TimeBlock> findByActivityId(UUID activityId) {
+        List<TimeBlock> rows = jdbc.query(
+                "SELECT id, type, start_at, end_at, name, activity_id FROM time_block WHERE activity_id = :activityId",
+                new MapSqlParameterSource("activityId", activityId),
+                ROW_MAPPER);
+        return rows.stream().findFirst();
+    }
+
+    @Override
     public List<TimeBlock> findByDay(LocalDate day) {
         LocalDateTime dayStart = day.atStartOfDay();
         LocalDateTime dayEnd = day.plusDays(1).atStartOfDay();

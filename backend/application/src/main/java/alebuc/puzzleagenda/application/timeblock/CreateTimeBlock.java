@@ -1,6 +1,9 @@
 package alebuc.puzzleagenda.application.timeblock;
 
+import alebuc.puzzleagenda.domain.activity.Activity;
+import alebuc.puzzleagenda.domain.exception.ActivityNotAvailableException;
 import alebuc.puzzleagenda.domain.horizon.HorizonState;
+import alebuc.puzzleagenda.domain.port.ActivityRepository;
 import alebuc.puzzleagenda.domain.port.HorizonStateRepository;
 import alebuc.puzzleagenda.domain.port.TimeBlockRepository;
 import alebuc.puzzleagenda.domain.service.OverlapPolicy;
@@ -20,26 +23,28 @@ import java.util.UUID;
  * Establishes Day 1 on the first-ever placement, to today's date at that
  * moment — never to the day targeted (research.md §5).
  *
- * <p>Only the structural "activityId required iff PLANNED_ACTIVITY"
- * invariant is enforced here (via {@link TimeBlock#create}); validating
- * that a {@code PLANNED_ACTIVITY} block's {@code activityId} references a
- * currently unplanned {@code Activity} is added in tasks.md T050/US3, once
- * the {@code Activity} entity exists.
+ * <p>For a {@code PLANNED_ACTIVITY} block, {@code activityId} must reference
+ * a currently {@code UNPLANNED} activity (FR-007, tasks.md T050/US3) — the
+ * structural "activityId required iff PLANNED_ACTIVITY" invariant is
+ * enforced separately, by {@link TimeBlock#create}.
  */
 public final class CreateTimeBlock {
 
     private final TimeBlockRepository timeBlockRepository;
     private final HorizonStateRepository horizonStateRepository;
+    private final ActivityRepository activityRepository;
     private final OverlapPolicy overlapPolicy;
     private final Clock clock;
 
     public CreateTimeBlock(
             TimeBlockRepository timeBlockRepository,
             HorizonStateRepository horizonStateRepository,
+            ActivityRepository activityRepository,
             OverlapPolicy overlapPolicy,
             Clock clock) {
         this.timeBlockRepository = Objects.requireNonNull(timeBlockRepository);
         this.horizonStateRepository = Objects.requireNonNull(horizonStateRepository);
+        this.activityRepository = Objects.requireNonNull(activityRepository);
         this.overlapPolicy = Objects.requireNonNull(overlapPolicy);
         this.clock = Objects.requireNonNull(clock);
     }
@@ -53,6 +58,10 @@ public final class CreateTimeBlock {
 
         HorizonState horizonState = horizonStateRepository.load();
         horizonState.checkReachable(day, today);
+
+        if (command.type() == BlockType.PLANNED_ACTIVITY) {
+            requireUnplannedActivity(command.activityId());
+        }
 
         List<TimeRange> existingRanges = timeBlockRepository.findIntersecting(candidate).stream()
                 .map(TimeBlock::range)
@@ -68,6 +77,14 @@ public final class CreateTimeBlock {
         }
 
         return block;
+    }
+
+    private void requireUnplannedActivity(UUID activityId) {
+        Activity activity = activityRepository.findById(activityId)
+                .orElseThrow(() -> new ActivityNotAvailableException(activityId));
+        if (activity.isPlanned()) {
+            throw new ActivityNotAvailableException(activityId);
+        }
     }
 
     public record Command(BlockType type, LocalDateTime startAt, LocalDateTime endAt, String name, UUID activityId) {

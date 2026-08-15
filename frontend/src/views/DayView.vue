@@ -21,6 +21,13 @@ async function loadHorizon() {
 loadHorizon()
 watch(() => props.date, loadHorizon)
 
+// Backlog activities available to plan into a slot (US3).
+const unplannedActivities = ref([])
+async function loadUnplannedActivities() {
+  unplannedActivities.value = await apiClient.get('/activities?status=unplanned')
+}
+loadUnplannedActivities()
+
 function shiftDate(days) {
   const d = new Date(`${props.date}T00:00:00`)
   d.setDate(d.getDate() + days)
@@ -34,7 +41,7 @@ function goToDate(date) {
   router.push({ name: 'day', params: { date } })
 }
 
-const emptyForm = () => ({ type: 'CONSTRAINED', startTime: '', endTime: '', name: '' })
+const emptyForm = () => ({ type: 'CONSTRAINED', startTime: '', endTime: '', name: '', activityId: '' })
 const form = ref(emptyForm())
 const formError = ref(null)
 const editingBlockId = ref(null)
@@ -48,6 +55,14 @@ async function submitForm() {
         endTime: form.value.endTime,
         name: form.value.name || null,
       })
+    } else if (form.value.type === 'PLANNED_ACTIVITY') {
+      await createBlock({
+        type: 'PLANNED_ACTIVITY',
+        startTime: form.value.startTime,
+        endTime: form.value.endTime,
+        activityId: form.value.activityId,
+      })
+      await loadUnplannedActivities()
     } else {
       await createBlock({
         type: form.value.type,
@@ -99,6 +114,7 @@ async function handleDelete(block) {
         <select v-model="form.type" :disabled="!!editingBlockId">
           <option value="ROUTINE">Routine</option>
           <option value="CONSTRAINED">Constrained</option>
+          <option value="PLANNED_ACTIVITY">Planned activity</option>
         </select>
       </label>
       <label>
@@ -109,7 +125,16 @@ async function handleDelete(block) {
         End
         <input v-model="form.endTime" type="time" step="300" required />
       </label>
-      <label>
+      <label v-if="form.type === 'PLANNED_ACTIVITY' && !editingBlockId">
+        Activity
+        <select v-model="form.activityId" required>
+          <option value="" disabled>Select a backlog activity…</option>
+          <option v-for="activity in unplannedActivities" :key="activity.id" :value="activity.id">
+            {{ activity.name }}
+          </option>
+        </select>
+      </label>
+      <label v-else>
         Name
         <input v-model="form.name" type="text" />
       </label>

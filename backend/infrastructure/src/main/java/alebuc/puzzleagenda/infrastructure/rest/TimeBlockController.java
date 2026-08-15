@@ -3,10 +3,12 @@ package alebuc.puzzleagenda.infrastructure.rest;
 import alebuc.puzzleagenda.application.timeblock.CreateTimeBlock;
 import alebuc.puzzleagenda.application.timeblock.DeleteTimeBlock;
 import alebuc.puzzleagenda.application.timeblock.EditTimeBlock;
+import alebuc.puzzleagenda.application.timeblock.MoveTimeBlock;
 import alebuc.puzzleagenda.domain.timeblock.BlockType;
 import alebuc.puzzleagenda.domain.timeblock.TimeBlock;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -28,11 +30,20 @@ public class TimeBlockController {
     private final CreateTimeBlock createTimeBlock;
     private final EditTimeBlock editTimeBlock;
     private final DeleteTimeBlock deleteTimeBlock;
+    private final MoveTimeBlock moveTimeBlock;
+    private final TimeBlockResponseAssembler responseAssembler;
 
-    public TimeBlockController(CreateTimeBlock createTimeBlock, EditTimeBlock editTimeBlock, DeleteTimeBlock deleteTimeBlock) {
+    public TimeBlockController(
+            CreateTimeBlock createTimeBlock,
+            EditTimeBlock editTimeBlock,
+            DeleteTimeBlock deleteTimeBlock,
+            MoveTimeBlock moveTimeBlock,
+            TimeBlockResponseAssembler responseAssembler) {
         this.createTimeBlock = createTimeBlock;
         this.editTimeBlock = editTimeBlock;
         this.deleteTimeBlock = deleteTimeBlock;
+        this.moveTimeBlock = moveTimeBlock;
+        this.responseAssembler = responseAssembler;
     }
 
     @PostMapping("/days/{date}/blocks")
@@ -45,7 +56,7 @@ public class TimeBlockController {
 
         TimeBlock block = createTimeBlock.execute(
                 new CreateTimeBlock.Command(request.type(), startAt, endAt, request.name(), request.activityId()));
-        return TimeBlockResponse.from(block);
+        return responseAssembler.toResponse(block);
     }
 
     @PutMapping("/blocks/{id}")
@@ -54,7 +65,14 @@ public class TimeBlockController {
         LocalTime end = LocalTime.parse(request.endTime());
 
         TimeBlock updated = editTimeBlock.execute(id, start, end, request.name());
-        return TimeBlockResponse.from(updated);
+        return responseAssembler.toResponse(updated);
+    }
+
+    @PatchMapping("/blocks/{id}/move")
+    public TimeBlockResponse moveBlock(@PathVariable UUID id, @RequestBody MoveTimeBlockRequest request) {
+        TimeBlock moved = moveTimeBlock.execute(
+                id, request.day(), LocalTime.parse(request.startTime()), LocalTime.parse(request.endTime()));
+        return responseAssembler.toResponse(moved);
     }
 
     @DeleteMapping("/blocks/{id}")
@@ -67,5 +85,8 @@ public class TimeBlockController {
     }
 
     public record EditTimeBlockRequest(String startTime, String endTime, String name) {
+    }
+
+    public record MoveTimeBlockRequest(LocalDate day, String startTime, String endTime) {
     }
 }

@@ -248,36 +248,63 @@ confirm it appears in the unplanned backlog, then edit and delete it (spec.md US
 
 ### Tests for User Story 2
 
-- [ ] T037 [P] [US2] Application unit tests for `CreateActivity`/`EditActivity`/`DeleteActivity`
-      in `backend/application/src/test/java/alebuc/puzzleagenda/application/activity/ActivityUseCasesTest.java`
-- [ ] T038 [P] [US2] Infrastructure contract tests for `/api/activities` endpoints
+- [X] T037 [P] [US2] Application unit tests for `CreateActivity`/`EditActivity`/`DeleteActivity`
+      in `backend/application/src/test/java/alebuc/puzzleagenda/application/activity/ActivityUseCasesTest.java`.
+      Also covers `ListActivities` (see T041 note) and `DeleteActivity`'s confirm/cascade flow
+      (T053's scope, built here — see that task's note).
+- [X] T038 [P] [US2] Infrastructure contract tests for `/api/activities` endpoints
       (Spring Boot Test + Testcontainers) in
-      `backend/infrastructure/src/test/java/alebuc/puzzleagenda/infrastructure/rest/ActivityControllerIT.java`
-- [ ] T039 [P] [US2] Frontend component test for backlog list rendering in
+      `backend/infrastructure/src/test/java/alebuc/puzzleagenda/infrastructure/rest/ActivityControllerIT.java`.
+      **Gap hit while writing this**: AssertJ's `containsEntry` on a `Map<?, ?>`-typed variable
+      fails to compile ("String cannot be converted to capture of ?") — wildcard capture doesn't
+      let the compiler verify the key/value types. Declare the JSON-body variable as
+      `Map<String, Object>` (matching what Jackson actually produces for `Map.class`), not
+      `Map<?, ?>`.
+- [X] T039 [P] [US2] Frontend component test for backlog list rendering in
       `frontend/tests/BacklogView.spec.js`
 
 ### Implementation for User Story 2
 
-- [ ] T040 [P] [US2] Implement the `Activity` entity (name, duration, priority, category;
+- [X] T040 [P] [US2] Implement the `Activity` entity (name, duration, priority, category;
       derived `UNPLANNED`/`PLANNED` status) in
       `backend/domain/src/main/java/alebuc/puzzleagenda/domain/activity/Activity.java`
-      (depends on T011)
-- [ ] T041 [US2] Implement `CreateActivity`, `EditActivity`, `DeleteActivity` (direct delete
+      (depends on T011). `status` is never set by domain logic — `create()` defaults it to
+      `UNPLANNED`; `reconstitute()` takes it as given, since only the repository (via a join
+      against `time_block`) actually knows it. The `ActivityRepository` port is also defined
+      here, alongside the entity, per the same deferral pattern as T024's `TimeBlockRepository`.
+- [X] T041 [US2] Implement `CreateActivity`, `EditActivity`, `DeleteActivity` (direct delete
       only while `UNPLANNED`, FR-004) in
       `backend/application/src/main/java/alebuc/puzzleagenda/application/activity/CreateActivity.java`,
-      `.../EditActivity.java`, `.../DeleteActivity.java` (depends on T040)
-- [ ] T042 [US2] Implement the `ActivityRepository` persistence adapter in
+      `.../EditActivity.java`, `.../DeleteActivity.java` (depends on T040). **`DeleteActivity`
+      was built directly to its final, T053-extended shape** (confirm check + cascade-delete the
+      scheduled block), not staged behind a simpler UNPLANNED-only version — US2 and US3 were
+      implemented in the same pass, so a temporarily-incomplete version (which would hit the
+      `time_block.activity_id` foreign key constraint on delete instead of failing cleanly) would
+      have served no purpose. Also added `ListActivities` — not a tasks.md-named use case, but a
+      natural completion of the read side of `GET /api/activities` (T043 needs it; per
+      Constitution Principle I this belongs in the application module, not the controller).
+- [X] T042 [US2] Implement the `ActivityRepository` persistence adapter in
       `backend/infrastructure/src/main/java/alebuc/puzzleagenda/infrastructure/persistence/ActivityRepositoryAdapter.java`
-      (depends on T006, T014, T040)
-- [ ] T043 [US2] Implement `ActivityController` (`GET`/`POST`/`PUT /api/activities`,
+      (depends on T006, T014, T040). `status` is computed per row via an `EXISTS` subquery
+      against `time_block` (never stored), matching the entity's design.
+- [X] T043 [US2] Implement `ActivityController` (`GET`/`POST`/`PUT /api/activities`,
       `DELETE /api/activities/{id}` for the `UNPLANNED` case) in
       `backend/infrastructure/src/main/java/alebuc/puzzleagenda/infrastructure/rest/ActivityController.java`
-      (depends on T041)
-- [ ] T044 [P] [US2] Implement the `useBacklog()` composable in
+      (depends on T041). `ApiExceptionHandler` gained `ActivityNotFoundException` → 404
+      `ACTIVITY_NOT_FOUND`, `ActivityCurrentlyPlannedException` → 409
+      `ACTIVITY_CURRENTLY_PLANNED`, `ActivityNotAvailableException` → 409
+      `ACTIVITY_NOT_AVAILABLE`. `ACTIVITY_NOT_FOUND` isn't one of contracts/api.md's six named
+      business-rule cases, consistent with `TIME_BLOCK_NOT_FOUND` (T025) — plain not-found,
+      not a business rule.
+- [X] T044 [P] [US2] Implement the `useBacklog()` composable in
       `frontend/src/composables/useBacklog.js`
-- [ ] T045 [P] [US2] Implement `ActivityCard` in `frontend/src/components/ActivityCard.vue`
-- [ ] T046 [US2] Implement `BacklogView` (create/edit/delete an unplanned activity) in
-      `frontend/src/views/BacklogView.vue` (depends on T044, T045)
+- [X] T045 [P] [US2] Implement `ActivityCard` in `frontend/src/components/ActivityCard.vue`
+- [X] T046 [US2] Implement `BacklogView` (create/edit/delete an unplanned activity) in
+      `frontend/src/views/BacklogView.vue` (depends on T044, T045). **Built directly with T056's
+      confirm-delete flow included** (same reasoning as `DeleteActivity`/T041). Also added a
+      `/backlog` route to `frontend/src/router/index.js` and a minimal top nav to
+      `frontend/src/App.vue` (Today / Backlog links) — a view needs to be reachable to be
+      meaningfully "implemented".
 
 **Checkpoint**: User Stories 1 and 2 both independently functional.
 
@@ -295,44 +322,82 @@ activity returns to the backlog (spec.md US3).
 
 ### Tests for User Story 3
 
-- [ ] T047 [P] [US3] Domain unit tests for `Activity` `UNPLANNED`/`PLANNED` transitions in
+- [X] T047 [P] [US3] Domain unit tests for `Activity` `UNPLANNED`/`PLANNED` transitions in
       `backend/domain/src/test/java/alebuc/puzzleagenda/domain/activity/ActivityTest.java`
-- [ ] T048 [P] [US3] Application unit tests for planning/moving/deleting a `PLANNED_ACTIVITY`
+- [X] T048 [P] [US3] Application unit tests for planning/moving/deleting a `PLANNED_ACTIVITY`
       block, including the confirm-required delete flow (FR-005), in
-      `backend/application/src/test/java/alebuc/puzzleagenda/application/timeblock/PlanActivityTest.java`
-- [ ] T049 [P] [US3] Infrastructure contract tests for `POST /api/days/{date}/blocks` with
+      `backend/application/src/test/java/alebuc/puzzleagenda/application/timeblock/PlanActivityTest.java`.
+      The confirm-required delete flow is exercised in `ActivityUseCasesTest` (T037) instead —
+      not duplicated here; this file covers `CreateTimeBlock`'s `ACTIVITY_NOT_AVAILABLE` checks
+      and `MoveTimeBlock`, which are this story's actually-new application logic.
+- [X] T049 [P] [US3] Infrastructure contract tests for `POST /api/days/{date}/blocks` with
       `type=PLANNED_ACTIVITY`, `PATCH /api/blocks/{id}/move`, and
       `DELETE /api/activities/{id}?confirm=` in
-      `backend/infrastructure/src/test/java/alebuc/puzzleagenda/infrastructure/rest/PlanActivityControllerIT.java`
+      `backend/infrastructure/src/test/java/alebuc/puzzleagenda/infrastructure/rest/PlanActivityControllerIT.java`.
+      **Gap hit while writing this**: `GET /api/activities` returns a JSON *array*, not an
+      object — the shared `Map`-typed response helper used for every other endpoint in this file
+      can't deserialize it (Jackson can't map an array into a `Map`). Worked around by asserting
+      via a direct SQL query (already needed elsewhere in the file) rather than adding a
+      second array-typed response helper for a single call site.
 
 ### Implementation for User Story 3
 
-- [ ] T050 [US3] Extend `CreateTimeBlock` to require and validate an `UNPLANNED` `activityId`
+- [X] T050 [US3] Extend `CreateTimeBlock` to require and validate an `UNPLANNED` `activityId`
       for `PLANNED_ACTIVITY` (409 `ACTIVITY_NOT_AVAILABLE`) in
       `backend/application/src/main/java/alebuc/puzzleagenda/application/timeblock/CreateTimeBlock.java`
       (depends on T026, T040)
-- [ ] T051 [US3] Implement `MoveTimeBlock` (reschedule a `PLANNED_ACTIVITY` block to a new
+- [X] T051 [US3] Implement `MoveTimeBlock` (reschedule a `PLANNED_ACTIVITY` block to a new
       day/slot, overlap + horizon re-check) in
       `backend/application/src/main/java/alebuc/puzzleagenda/application/timeblock/MoveTimeBlock.java`
       (depends on T025, T012)
-- [ ] T052 [US3] Extend `DeleteTimeBlock` to return the linked `Activity` to `UNPLANNED` when
+- [X] T052 [US3] Extend `DeleteTimeBlock` to return the linked `Activity` to `UNPLANNED` when
       deleting a `PLANNED_ACTIVITY` block in
       `backend/application/src/main/java/alebuc/puzzleagenda/application/timeblock/DeleteTimeBlock.java`
-      (depends on T028, T040)
-- [ ] T053 [US3] Extend `DeleteActivity` to require `confirm=true` and cascade-delete the
+      (depends on T028, T040). **No code change was needed.** `Activity.status` is never stored
+      (T040/T042) — it's computed live via an `EXISTS` subquery against `time_block` on every
+      read. Deleting the `TimeBlock` row is therefore *itself* sufficient for the activity to
+      report `UNPLANNED` on the next read; there is no second place that needs updating.
+      Verified live against a real Postgres instance: created an activity, planned it, deleted
+      the block directly (not the activity), and it reappeared in the unplanned backlog with no
+      application-layer code touching `Activity` at all.
+- [X] T053 [US3] Extend `DeleteActivity` to require `confirm=true` and cascade-delete the
       scheduled `TimeBlock` when the activity is `PLANNED` (FR-005) in
       `backend/application/src/main/java/alebuc/puzzleagenda/application/activity/DeleteActivity.java`
-      (depends on T041, T028)
-- [ ] T054 [US3] Add `PATCH /api/blocks/{id}/move` to `TimeBlockController` in
+      (depends on T041, T028). Built together with T041 (see that task's note) rather than as a
+      separate later edit. Required adding `TimeBlockRepository.findByActivityId(UUID)` (and its
+      JDBC implementation) — not in any prior task, needed so `DeleteActivity` can find the
+      specific block to cascade-delete.
+- [X] T054 [US3] Add `PATCH /api/blocks/{id}/move` to `TimeBlockController` in
       `backend/infrastructure/src/main/java/alebuc/puzzleagenda/infrastructure/rest/TimeBlockController.java`
       (depends on T051)
-- [ ] T055 [P] [US3] Add the "assign backlog activity to a slot" affordance to `DayView`/
+- [X] T055 [P] [US3] Add the "assign backlog activity to a slot" affordance to `DayView`/
       `TimeBlockCard` in `frontend/src/views/DayView.vue` and
-      `frontend/src/components/TimeBlockCard.vue` (depends on T036, T046)
-- [ ] T056 [P] [US3] Add the planned-activity confirm-delete UI flow to `BacklogView` in
-      `frontend/src/views/BacklogView.vue` (depends on T046)
+      `frontend/src/components/TimeBlockCard.vue` (depends on T036, T046). **Contract extension
+      found and fixed while wiring this up**: data-model.md says a `PLANNED_ACTIVITY` block's
+      display label is its linked Activity's name (its own `name` field is "unused" for that
+      type), but contracts/api.md's response shape never actually carried that information — the
+      frontend had no way to render a meaningful label. Added `activityName` (populated only for
+      `PLANNED_ACTIVITY` blocks) to `TimeBlockResponse` and documented it in contracts/api.md.
+      Introduced a shared `TimeBlockResponseAssembler` component (used by both `DayController`
+      and `TimeBlockController`) so the enrichment lookup isn't duplicated. Scope was kept to the
+      "plan an activity" form control only — no drag-and-drop/move UI was built, since nothing in
+      tasks.md's frontend tasks calls for one; `MoveTimeBlock`'s endpoint (T054) is ready for a
+      future UI iteration.
+- [X] T056 [P] [US3] Add the planned-activity confirm-delete UI flow to `BacklogView` in
+      `frontend/src/views/BacklogView.vue` (depends on T046). Built together with T046 (see that
+      task's note) rather than as a separate later edit.
 
 **Checkpoint**: User Stories 1–3 independently functional; activities flow backlog ↔ schedule.
+Verified end-to-end against a live PostgreSQL 16 container and a live backend process, beyond
+the automated suites (56 backend unit tests + 24 Testcontainers-backed integration tests, all
+passing; frontend: 10 Vitest tests, `npm run build` green): create/edit/delete an activity;
+plan it into a slot (disappears from the unplanned backlog, `activityName` populated); reject
+re-planning an already-planned or nonexistent activity (409 `ACTIVITY_NOT_AVAILABLE`); move a
+planned-activity block to a new day (rejects moving a non-`PLANNED_ACTIVITY` block, 400); reject
+deleting a planned activity without `confirm=true` (409 `ACTIVITY_CURRENTLY_PLANNED`) and confirm
+that `confirm=true` cascades to delete its scheduled block; and confirm that deleting the block
+directly (not the activity) returns it to the backlog with zero code dedicated to that effect
+(T052).
 
 ---
 

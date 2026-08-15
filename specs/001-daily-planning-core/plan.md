@@ -98,7 +98,7 @@ specs/001-daily-planning-core/
 ```text
 backend/
 ├── domain/
-│   ├── src/main/java/dev/puzzleagenda/domain/
+│   ├── src/main/java/alebuc/puzzleagenda/domain/
 │   │   ├── activity/     # Activity entity, Priority value object
 │   │   ├── timeblock/    # TimeBlock entity, TimeRange value object, BlockType
 │   │   ├── routine/      # RoutineTemplateEntry entity
@@ -109,7 +109,7 @@ backend/
 │   └── src/test/java/... # plain JUnit 5 + AssertJ, no Spring context
 │
 ├── application/
-│   ├── src/main/java/dev/puzzleagenda/application/
+│   ├── src/main/java/alebuc/puzzleagenda/application/
 │   │   ├── activity/  # CreateActivity, EditActivity, DeleteActivity
 │   │   ├── timeblock/ # CreateTimeBlock, EditTimeBlock, MoveTimeBlock, DeleteTimeBlock
 │   │   ├── routine/   # CreateRoutineEntry, EditRoutineEntry, DeleteRoutineEntry
@@ -117,7 +117,7 @@ backend/
 │   └── src/test/java/... # plain JUnit 5 + AssertJ + Mockito, no Spring context
 │
 ├── infrastructure/
-│   ├── src/main/java/dev/puzzleagenda/infrastructure/
+│   ├── src/main/java/alebuc/puzzleagenda/infrastructure/
 │   │   ├── rest/         # ActivityController, TimeBlockController,
 │   │   │                 # RoutineTemplateController, DayController
 │   │   ├── persistence/  # repository adapters implementing domain ports
@@ -126,7 +126,7 @@ backend/
 │   └── src/test/java/...  # Spring Boot Test + Testcontainers (PostgreSQL)
 │
 └── bootstrap/
-    ├── src/main/java/dev/puzzleagenda/bootstrap/
+    ├── src/main/java/alebuc/puzzleagenda/bootstrap/
     │   └── PuzzleAgendaApplication.java # Spring Boot main class, module wiring
     └── src/main/resources/application.yml
 

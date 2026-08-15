@@ -35,6 +35,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -128,6 +129,26 @@ class PlanActivityTest {
 
         assertThatThrownBy(() -> createTimeBlock.execute(command))
                 .isInstanceOf(ActivityNotAvailableException.class);
+    }
+
+    @Test
+    void rejectsPlanningWithAMissingActivityId() {
+        // Found during the T071 contracts/api.md audit: a null activityId must not fall through
+        // to a raw NPE or an unrelated 400 — it's still an ACTIVITY_NOT_AVAILABLE case (409),
+        // same as a nonexistent one, just with a clearer message than "Activity null...".
+        when(horizonStateRepository.load()).thenReturn(HorizonState.withDay1(TODAY));
+
+        CreateTimeBlock.Command command = new CreateTimeBlock.Command(
+                BlockType.PLANNED_ACTIVITY,
+                LocalDateTime.of(2026, 8, 16, 14, 0),
+                LocalDateTime.of(2026, 8, 16, 15, 0),
+                null,
+                null);
+
+        assertThatThrownBy(() -> createTimeBlock.execute(command))
+                .isInstanceOf(ActivityNotAvailableException.class)
+                .hasMessageContaining("activityId is required");
+        verifyNoInteractions(activityRepository);
     }
 
     // --- MoveTimeBlock -----------------------------------------------------

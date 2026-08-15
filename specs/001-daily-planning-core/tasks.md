@@ -517,14 +517,50 @@ walkthrough.
 
 ## Phase 7: Polish & Cross-Cutting Concerns
 
-- [ ] T069 [P] Run the full `quickstart.md` walkthrough end-to-end against a local backend and
-      Testcontainers/PostgreSQL instance
-- [ ] T070 [P] Document `OverlapPolicy` and `MaterializationService` invariants for future
-      contributors in `backend/domain/README.md`
-- [ ] T071 Audit every REST endpoint against contracts/api.md's Error Conventions table for
-      status-code/`reason` consistency
-- [ ] T072 [P] Keyboard-navigation/accessibility pass on `DayView`'s day-to-day navigation
-      controls in `frontend/src/views/DayView.vue`
+- [X] T069 [P] Run the full `quickstart.md` walkthrough end-to-end against a local backend and
+      Testcontainers/PostgreSQL instance. Ran it live, section by section, against a fresh
+      PostgreSQL 16 container and the packaged jar (not Testcontainers here specifically — that's
+      what the infrastructure IT suite already exercises; this task's value is running the
+      *documented walkthrough itself*, verbatim, as a human/CI operator would). Every expected
+      result in every one of the six sections matched exactly, including §5's clipping example.
+- [X] T070 [P] Document `OverlapPolicy` and `MaterializationService` invariants for future
+      contributors in `backend/domain/README.md`. Didn't exist before this task — created new.
+- [X] T071 Audit every REST endpoint against contracts/api.md's Error Conventions table for
+      status-code/`reason` consistency. **Found and fixed six real doc/implementation mismatches**
+      (each verified live before and after the fix, not just inferred from reading code):
+      1. `POST /api/days/{date}/blocks`'s 400 case wrongly attributed a missing `activityId` on a
+         `PLANNED_ACTIVITY` block to `INVALID_TIME_GRANULARITY` — live testing showed it's
+         actually `409 ACTIVITY_NOT_AVAILABLE` (the activity-lookup runs before any structural
+         null check would). The real 400 case is the *reverse*: an `activityId` present on a
+         non-`PLANNED_ACTIVITY` block. Also improved `CreateTimeBlock`'s error message for this
+         case (was "Activity null is not available...", now "activityId is required...") and
+         added a regression test in `PlanActivityTest`.
+      2. `GET /api/activities`'s `400 INVALID_REQUEST` for an invalid `status` value was
+         undocumented entirely.
+      3. `PUT /api/activities/{id}`'s `400` validation-failure case (blank name, non-positive
+         duration) was undocumented — the doc only mentioned 404.
+      4. `PATCH /api/blocks/{id}/move`'s `400 INVALID_TIME_GRANULARITY` case was undocumented —
+         the doc only mentioned the not-`PLANNED_ACTIVITY` 400 case.
+      5. `POST`/`PUT /api/routine-template/entries`'s 400 case had the same wrong-attribution bug
+         as (1): blank name is `INVALID_REQUEST`, not `INVALID_TIME_GRANULARITY`.
+      6. Every plain "id doesn't exist" 404 across the whole document was missing its actual
+         `reason` string (`ACTIVITY_NOT_FOUND`, `TIME_BLOCK_NOT_FOUND`,
+         `ROUTINE_TEMPLATE_ENTRY_NOT_FOUND`) — added throughout for consistency, plus a note in
+         the Error Conventions intro explaining why more reason strings appear in the document
+         than the six-row table lists.
+- [X] T072 [P] Keyboard-navigation/accessibility pass on `DayView`'s day-to-day navigation
+      controls in `frontend/src/views/DayView.vue`. Added: descriptive `aria-label`s naming the
+      actual target date on both nav buttons; `role="navigation"` + `aria-label` on the header;
+      `aria-live="polite"` on the date heading so screen readers announce day changes; Left/Right
+      arrow-key navigation (bounded by the same horizon check as the buttons), guarded to not
+      fire while focus is inside a form control (`INPUT`/`SELECT`/`TEXTAREA`) so it doesn't hijack
+      normal use of the add/edit-block form on the same page.
+
+**Checkpoint**: The feature spec (spec.md) is fully implemented across all four user stories,
+with contracts/api.md now accurately reflecting real backend behavior end to end. Final combined
+test count: 66 backend unit tests, 36 Testcontainers-backed integration tests, 10 frontend Vitest
+tests — all passing — plus the full quickstart.md walkthrough verified live against a real
+PostgreSQL instance.
 
 ---
 

@@ -17,6 +17,11 @@ public class ActivityNotAvailableException extends RuntimeException {
         this.activityId = activityId;
     }
 
+    public ActivityNotAvailableException(UUID activityId, String message) {
+        super(message);
+        this.activityId = activityId;
+    }
+
     public UUID activityId() {
         return activityId;
     }

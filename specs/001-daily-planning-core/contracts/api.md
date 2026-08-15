@@ -30,6 +30,13 @@ well-formed but not currently processable), while a date before Day 1
 *does not exist as a concept for this user* (404 — per spec Edge Cases,
 "the day is treated as non-existent").
 
+Every endpoint below also names its `reason` for the plainer, non-business
+cases that aren't in the table above — a referenced id not existing
+(`ACTIVITY_NOT_FOUND`, `TIME_BLOCK_NOT_FOUND`,
+`ROUTINE_TEMPLATE_ENTRY_NOT_FOUND`) and generic request-shape validation
+failures (`INVALID_REQUEST`) — since the response body always carries a
+`reason`, even outside these six named business rules.
+
 ## Activities
 
 ### `GET /api/activities`
@@ -50,6 +57,8 @@ all activities.
   }
 ]
 ```
+**400 Bad Request** — `INVALID_REQUEST`: `status` is present but not
+`unplanned` or `planned`.
 
 ### `POST /api/activities`
 
@@ -64,13 +73,17 @@ all activities.
 ```
 
 **201 Created** — body: the created Activity (see shape above).
-**400 Bad Request** — validation failure (blank name, non-positive
-duration, invalid priority).
+**400 Bad Request** — `INVALID_REQUEST`: validation failure (blank name,
+non-positive duration); an invalid `priority` value fails JSON
+deserialization before reaching validation and gets a generic 400 from
+Spring, not this `{reason, message}` shape.
 
 ### `PUT /api/activities/{id}`
 
-Same request/response shape as `POST`. **200 OK** on success, **404 Not
-Found** if `id` doesn't exist.
+Same request/response shape as `POST`. **200 OK** on success. **400 Bad
+Request** — `INVALID_REQUEST`: same validation failures as `POST` (blank
+name, non-positive duration). **404 Not Found** — `ACTIVITY_NOT_FOUND`:
+`id` doesn't exist.
 
 ### `DELETE /api/activities/{id}`
 
@@ -82,7 +95,7 @@ Query param `confirm` (optional boolean, default `false`).
   (FR-005 — confirmation required).
 - If the activity is `PLANNED` and `confirm=true`: deletes the activity
   **and** its scheduled `TimeBlock`. **204 No Content**.
-- **404 Not Found** if `id` doesn't exist.
+- **404 Not Found** — `ACTIVITY_NOT_FOUND`: `id` doesn't exist.
 
 ## Horizon
 
@@ -168,18 +181,22 @@ not exist).
 reference a currently `UNPLANNED` activity (FR-007).
 
 **201 Created** — body: the created block (shape as in `GET /api/days/{date}`).
-**400 Bad Request** — `INVALID_TIME_GRANULARITY`: non-5-minute time
-value or zero-length block; or `type = PLANNED_ACTIVITY` with a missing
-`activityId` (structurally required field absent).
+**400 Bad Request** — either `INVALID_TIME_GRANULARITY`: non-5-minute
+time value or zero-length block; or `INVALID_REQUEST`: `activityId` is
+present for a `type` other than `PLANNED_ACTIVITY` (must be `null`).
 **404 Not Found** — `DAY_NOT_REACHABLE`: `date` is earlier than `day1`
 (FR-009).
 **422 Unprocessable Entity** — `DAY_BEYOND_FORWARD_HORIZON`: `date` is
 later than `forwardBound` (FR-009).
 **409 Conflict** — either `TIME_BLOCK_OVERLAP`: the requested
 `[startTime, endTime)` overlaps an existing block (FR-008); or
-`ACTIVITY_NOT_AVAILABLE`: `type = PLANNED_ACTIVITY` and `activityId`
-references an activity that is not currently in the unplanned backlog
-(FR-007). See Error Conventions for both bodies.
+`ACTIVITY_NOT_AVAILABLE`: `type = PLANNED_ACTIVITY` and `activityId` is
+missing/`null`, or references an activity that is not currently in the
+unplanned backlog (FR-007) — a *missing* `activityId` for a
+`PLANNED_ACTIVITY` block is `ACTIVITY_NOT_AVAILABLE`, not a 400: the
+activity-lookup runs before the structural null check ever would, so it's
+indistinguishable from "that activity doesn't exist" by the time an error
+is raised. See Error Conventions for both 409 bodies.
 
 ### `PUT /api/blocks/{id}`
 
@@ -191,26 +208,30 @@ Edits `startTime`/`endTime`/`name` in place, same day (FR-010).
 ```
 
 **200 OK** — updated block. **400 Bad Request** — `INVALID_TIME_GRANULARITY`.
-**404 Not Found** — `id` doesn't exist. **409 Conflict** —
-`TIME_BLOCK_OVERLAP`: resulting range overlaps another block on the same
-day (FR-008).
+**404 Not Found** — `TIME_BLOCK_NOT_FOUND`: `id` doesn't exist. **409
+Conflict** — `TIME_BLOCK_OVERLAP`: resulting range overlaps another block
+on the same day (FR-008).
 
 ### `PATCH /api/blocks/{id}/move`
 
 Reschedules a `PLANNED_ACTIVITY` block to a (possibly different) day and
-slot (FR-011). **400 Bad Request** if the target block is not of type
-`PLANNED_ACTIVITY`.
+slot (FR-011).
 
 **Request**
 ```json
 { "day": "YYYY-MM-DD", "startTime": "HH:mm", "endTime": "HH:mm" }
 ```
 
-**200 OK** — updated block. **404 Not Found** — `id` doesn't exist, or
-`DAY_NOT_REACHABLE`: `day` is earlier than `day1` (FR-009). **422
-Unprocessable Entity** — `DAY_BEYOND_FORWARD_HORIZON`: `day` is later
-than `forwardBound` (FR-009). **409 Conflict** — `TIME_BLOCK_OVERLAP`:
-overlap at the destination (FR-008).
+**200 OK** — updated block.
+**400 Bad Request** — either `INVALID_REQUEST`: the target block is not
+of type `PLANNED_ACTIVITY`; or `INVALID_TIME_GRANULARITY`: non-5-minute
+time value or zero-length range.
+**404 Not Found** — `TIME_BLOCK_NOT_FOUND`: `id` doesn't exist; or
+`DAY_NOT_REACHABLE`: `day` is earlier than `day1` (FR-009).
+**422 Unprocessable Entity** — `DAY_BEYOND_FORWARD_HORIZON`: `day` is
+later than `forwardBound` (FR-009).
+**409 Conflict** — `TIME_BLOCK_OVERLAP`: overlap at the destination
+(FR-008).
 
 ### `DELETE /api/blocks/{id}`
 
@@ -218,7 +239,7 @@ overlap at the destination (FR-008).
 becomes `UNPLANNED` again (FR-012); no confirmation is required for any
 block type (spec Assumptions — confirmation only applies to deleting a
 planned Activity from `/api/activities`, not to deleting the block
-directly). **404 Not Found** if `id` doesn't exist.
+directly). **404 Not Found** — `TIME_BLOCK_NOT_FOUND`: `id` doesn't exist.
 
 ## Routine Template
 
@@ -236,18 +257,20 @@ directly). **404 Not Found** if `id` doesn't exist.
 **Request**: `{ "name": "string", "startTime": "HH:mm", "endTime": "HH:mm" }`
 (`endTime <= startTime` denotes a midnight-spanning entry).
 
-**201 Created** — the created entry. **400 Bad Request** —
-`INVALID_TIME_GRANULARITY`: non-5-minute value; or blank name. **409
-Conflict** — `TEMPLATE_ENTRY_OVERLAP`: overlaps an existing entry, using
-the two-day projection rule (FR-016).
+**201 Created** — the created entry. **400 Bad Request** — either
+`INVALID_REQUEST`: blank name; or `INVALID_TIME_GRANULARITY`:
+non-5-minute value or zero-length range. **409 Conflict** —
+`TEMPLATE_ENTRY_OVERLAP`: overlaps an existing entry, using the two-day
+projection rule (FR-016).
 
 ### `PUT /api/routine-template/entries/{id}`
 
-Same request/response shape as `POST`. **200 OK**, **404 Not Found**,
-**409 Conflict** (same rules as creation).
+Same request/response shape as `POST`. **200 OK**. **400 Bad Request**,
+**409 Conflict** (same rules as creation). **404 Not Found** —
+`ROUTINE_TEMPLATE_ENTRY_NOT_FOUND`: `id` doesn't exist.
 
 ### `DELETE /api/routine-template/entries/{id}`
 
 **204 No Content**. Only affects days materialized after this point
 (FR-019) — no cascading effect on already-materialized days.
-**404 Not Found** if `id` doesn't exist.
+**404 Not Found** — `ROUTINE_TEMPLATE_ENTRY_NOT_FOUND`: `id` doesn't exist.

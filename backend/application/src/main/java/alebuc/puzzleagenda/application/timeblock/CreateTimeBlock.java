@@ -80,6 +80,9 @@ public final class CreateTimeBlock {
     }
 
     private void requireUnplannedActivity(UUID activityId) {
+        if (activityId == null) {
+            throw new ActivityNotAvailableException(null, "activityId is required for a PLANNED_ACTIVITY block");
+        }
         Activity activity = activityRepository.findById(activityId)
                 .orElseThrow(() -> new ActivityNotAvailableException(activityId));
         if (activity.isPlanned()) {

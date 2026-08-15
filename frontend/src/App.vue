@@ -1,11 +1,12 @@
 <script setup>
 // Root shell: routed views (DayView, BacklogView, RoutineTemplateView) are
 // added under router/index.js as their user stories are implemented.
+import { todayIsoDate } from './date-utils'
 </script>
 
 <template>
   <nav class="app-nav">
-    <router-link :to="{ name: 'day', params: { date: new Date().toISOString().slice(0, 10) } }">
+    <router-link :to="{ name: 'day', params: { date: todayIsoDate() } }">
       Today
     </router-link>
     <router-link :to="{ name: 'backlog' }">Backlog</router-link>

@@ -1,8 +1,9 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { apiClient, ApiError } from '../api/client'
 import { useDaySchedule } from '../composables/useDaySchedule'
+import { shiftIsoDate } from '../date-utils'
 import DayTimeline from '../components/DayTimeline.vue'
 
 const props = defineProps({
@@ -28,18 +29,35 @@ async function loadUnplannedActivities() {
 }
 loadUnplannedActivities()
 
-function shiftDate(days) {
-  const d = new Date(`${props.date}T00:00:00`)
-  d.setDate(d.getDate() + days)
-  return d.toISOString().slice(0, 10)
-}
-
-const canGoPrevious = computed(() => !horizon.value?.day1 || shiftDate(-1) >= horizon.value.day1)
-const canGoNext = computed(() => !horizon.value?.forwardBound || shiftDate(1) <= horizon.value.forwardBound)
+const previousDate = computed(() => shiftIsoDate(props.date, -1))
+const nextDate = computed(() => shiftIsoDate(props.date, 1))
+const canGoPrevious = computed(() => !horizon.value?.day1 || previousDate.value >= horizon.value.day1)
+const canGoNext = computed(() => !horizon.value?.forwardBound || nextDate.value <= horizon.value.forwardBound)
 
 function goToDate(date) {
   router.push({ name: 'day', params: { date } })
 }
+
+// Left/Right arrow keys navigate days (bounded by the horizon, same as the
+// buttons), as long as focus isn't inside a form control that itself uses
+// arrow keys (text/time inputs, selects) — otherwise this would hijack
+// normal editing of the add/edit-block form below.
+function handleKeydown(event) {
+  const target = event.target
+  const isFormControl = target && ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName)
+  if (isFormControl) return
+
+  if (event.key === 'ArrowLeft' && canGoPrevious.value) {
+    event.preventDefault()
+    goToDate(previousDate.value)
+  } else if (event.key === 'ArrowRight' && canGoNext.value) {
+    event.preventDefault()
+    goToDate(nextDate.value)
+  }
+}
+
+onMounted(() => window.addEventListener('keydown', handleKeydown))
+onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
 
 const emptyForm = () => ({ type: 'CONSTRAINED', startTime: '', endTime: '', name: '', activityId: '' })
 const form = ref(emptyForm())
@@ -97,10 +115,26 @@ async function handleDelete(block) {
 
 <template>
   <section class="day-view">
-    <header class="day-view__nav">
-      <button type="button" :disabled="!canGoPrevious" @click="goToDate(shiftDate(-1))">← Previous day</button>
-      <h1>{{ date }}</h1>
-      <button type="button" :disabled="!canGoNext" @click="goToDate(shiftDate(1))">Next day →</button>
+    <header class="day-view__nav" role="navigation" aria-label="Day navigation">
+      <button
+        type="button"
+        :disabled="!canGoPrevious"
+        :aria-label="`Go to previous day, ${previousDate}`"
+        title="Previous day (Left arrow)"
+        @click="goToDate(previousDate)"
+      >
+        ← Previous day
+      </button>
+      <h1 aria-live="polite">{{ date }}</h1>
+      <button
+        type="button"
+        :disabled="!canGoNext"
+        :aria-label="`Go to next day, ${nextDate}`"
+        title="Next day (Right arrow)"
+        @click="goToDate(nextDate)"
+      >
+        Next day →
+      </button>
     </header>
 
     <p v-if="loading">Loading…</p>

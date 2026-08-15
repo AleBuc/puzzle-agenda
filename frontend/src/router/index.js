@@ -1,8 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-
-function todayIsoDate() {
-  return new Date().toISOString().slice(0, 10)
-}
+import { todayIsoDate } from '../date-utils'
 
 // Day-navigation route skeleton (tasks.md T019), day view filled in by User
 // Story 1 (T036). BacklogView (T046, US2) and RoutineTemplateView (T068,

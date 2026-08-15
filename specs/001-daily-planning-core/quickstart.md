@@ -66,7 +66,8 @@ FAR_DATE=$(date -d "$TODAY +14 days" +%F)   # macOS: date -j -v+14d -f %F "$TODA
 curl -s -o /dev/null -w '%{http_code}\n' -X POST $BASE/days/$FAR_DATE/blocks \
   -H 'Content-Type: application/json' \
   -d '{"type":"CONSTRAINED","startTime":"09:00","endTime":"10:00"}'
-# → 404
+# → 422 (DAY_BEYOND_FORWARD_HORIZON — contracts/api.md Error Conventions;
+#   404 is reserved for dates earlier than Day 1)
 ```
 
 ### 3. Plan the backlog activity (User Story 3)
@@ -121,11 +122,23 @@ curl -s $BASE/days/$DAY2
 
 ### 6. Past-day parity (SC-009)
 
+`GET /horizon` never establishes Day 1 itself — it is a pure read
+(research.md §5). Day 1 was already set back in step 2, at the moment of
+the *first* block placement or materialization in this walkthrough,
+whichever ran first chronologically:
+
 ```bash
 curl -s $BASE/horizon
-# → { "day1": "<date>", "forwardBound": "<today+13>" }
-# On a fresh install, day1 becomes today's date on the very first call above.
+# → { "day1": "<date set in step 2>", "forwardBound": "<today+13>" }
+```
 
+On a genuinely fresh install — before any block has been placed and
+before any day has been materialized — this same call instead returns
+`{ "day1": null, "forwardBound": "<today+13>" }` (spec Assumptions): Day 1
+only becomes non-null on the first-ever materialization or first-ever
+block placement, never merely from viewing the horizon.
+
+```bash
 curl -s -X POST $BASE/days/$TODAY/blocks -H 'Content-Type: application/json' \
   -d '{"type":"CONSTRAINED","startTime":"18:00","endTime":"18:30","name":"Errand"}'
 # Edit/delete it exactly as any other block — a past day (once today rolls forward)

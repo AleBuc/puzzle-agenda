@@ -5,6 +5,31 @@ Principle IV (consistent REST conventions, meaningful status codes). All
 request/response bodies are JSON. Dates are ISO-8601 (`YYYY-MM-DD`); times
 of day are `HH:mm` (5-minute increments only, per FR-006/FR-015).
 
+## Error Conventions
+
+Every business-rule rejection returns a JSON body
+`{ "reason": "CODE", "message": "human-readable explanation" }`. There are
+six distinct business error cases across this API, each with its own
+status code — endpoints below reference this table rather than repeating
+it:
+
+| Case | Status | `reason` |
+|---|---|---|
+| A new/edited time range overlaps an existing block on the same day (FR-008) | 409 Conflict | `TIME_BLOCK_OVERLAP` |
+| A new/edited routine template entry overlaps an existing entry, using the two-day projection rule (FR-016) | 409 Conflict | `TEMPLATE_ENTRY_OVERLAP` |
+| A block's, move's, or day-view's target date is later than `forwardBound` (`today + 13 days`) — a syntactically valid date the horizon does not yet reach (FR-009) | 422 Unprocessable Entity | `DAY_BEYOND_FORWARD_HORIZON` |
+| A target date is earlier than `HorizonState.day1` — the day does not exist for this user (FR-009, spec Edge Cases) | 404 Not Found | `DAY_NOT_REACHABLE` |
+| A `startTime`/`endTime` is not a 5-minute increment, or produces a zero-length range (FR-006, FR-015) | 400 Bad Request | `INVALID_TIME_GRANULARITY` |
+| A `PLANNED_ACTIVITY` block references an `activityId` that is not currently in the unplanned backlog (already planned elsewhere, or nonexistent) (FR-007) | 409 Conflict | `ACTIVITY_NOT_AVAILABLE` |
+| An activity that is currently planned (has a scheduled block) is deleted without `confirm=true` (FR-005) | 409 Conflict | `ACTIVITY_CURRENTLY_PLANNED` |
+
+`DAY_BEYOND_FORWARD_HORIZON` and `DAY_NOT_REACHABLE` are deliberately
+distinct: a date beyond the forward bound is a *valid future calendar
+date the reachable window hasn't grown to yet* (422 — the request is
+well-formed but not currently processable), while a date before Day 1
+*does not exist as a concept for this user* (404 — per spec Edge Cases,
+"the day is treated as non-existent").
+
 ## Activities
 
 ### `GET /api/activities`
@@ -84,6 +109,12 @@ been materialized, this call materializes it first (FR-017, clipped
 against any pre-existing blocks per research.md §3), then returns it. A
 past day (`date < today`) is returned as-is, never materialized (FR-017).
 
+**Deviation from GET safety**: this is a deliberate, documented deviation
+from strict REST "GET must be side-effect-free" semantics — see plan.md's
+Complexity Tracking table. The write is idempotent (a second `GET` after
+materialization returns the identical state), so callers may still treat
+repeated requests as safe to retry.
+
 **200 OK**
 ```json
 {
@@ -106,10 +137,11 @@ Blocks are returned in chronological order by `startAt`. `endsNextDay`
 is `true` when the block's `endAt` falls on the following calendar date
 (midnight-spanning, FR-014).
 
-**404 Not Found** — `date` is outside the reachable range (earlier than
-`day1`, or later than `forwardBound`), body
-`{ "reason": "DAY_NOT_REACHABLE", "message": "..." }` (FR-009, FR-023,
-edge case: days before Day 1 or beyond 13 days ahead do not exist).
+**404 Not Found** — `date` is earlier than `day1` (`DAY_NOT_REACHABLE`,
+see Error Conventions) (FR-009, FR-023, edge case: days before Day 1 do
+not exist).
+**422 Unprocessable Entity** — `date` is later than `forwardBound`
+(`DAY_BEYOND_FORWARD_HORIZON`, see Error Conventions) (FR-009, FR-023).
 
 ## Time Blocks
 
@@ -130,12 +162,18 @@ edge case: days before Day 1 or beyond 13 days ahead do not exist).
 reference a currently `UNPLANNED` activity (FR-007).
 
 **201 Created** — body: the created block (shape as in `GET /api/days/{date}`).
-**400 Bad Request** — non-5-minute time value, zero-length block, or
-`type = PLANNED_ACTIVITY` with a missing/already-planned `activityId`.
-**404 Not Found** — `date` outside the reachable range (FR-009).
-**409 Conflict** — the requested `[startTime, endTime)` overlaps an
-existing block, body
-`{ "reason": "TIME_BLOCK_OVERLAP", "message": "..." }` (FR-008).
+**400 Bad Request** — `INVALID_TIME_GRANULARITY`: non-5-minute time
+value or zero-length block; or `type = PLANNED_ACTIVITY` with a missing
+`activityId` (structurally required field absent).
+**404 Not Found** — `DAY_NOT_REACHABLE`: `date` is earlier than `day1`
+(FR-009).
+**422 Unprocessable Entity** — `DAY_BEYOND_FORWARD_HORIZON`: `date` is
+later than `forwardBound` (FR-009).
+**409 Conflict** — either `TIME_BLOCK_OVERLAP`: the requested
+`[startTime, endTime)` overlaps an existing block (FR-008); or
+`ACTIVITY_NOT_AVAILABLE`: `type = PLANNED_ACTIVITY` and `activityId`
+references an activity that is not currently in the unplanned backlog
+(FR-007). See Error Conventions for both bodies.
 
 ### `PUT /api/blocks/{id}`
 
@@ -146,9 +184,10 @@ Edits `startTime`/`endTime`/`name` in place, same day (FR-010).
 { "startTime": "HH:mm", "endTime": "HH:mm", "name": "string | null" }
 ```
 
-**200 OK** — updated block. **400 Bad Request** — invalid time value.
-**404 Not Found** — `id` doesn't exist. **409 Conflict** — resulting
-range overlaps another block on the same day (FR-008).
+**200 OK** — updated block. **400 Bad Request** — `INVALID_TIME_GRANULARITY`.
+**404 Not Found** — `id` doesn't exist. **409 Conflict** —
+`TIME_BLOCK_OVERLAP`: resulting range overlaps another block on the same
+day (FR-008).
 
 ### `PATCH /api/blocks/{id}/move`
 
@@ -162,8 +201,10 @@ slot (FR-011). **400 Bad Request** if the target block is not of type
 ```
 
 **200 OK** — updated block. **404 Not Found** — `id` doesn't exist, or
-`day` is outside the reachable range (FR-009). **409 Conflict** — overlap
-at the destination (FR-008).
+`DAY_NOT_REACHABLE`: `day` is earlier than `day1` (FR-009). **422
+Unprocessable Entity** — `DAY_BEYOND_FORWARD_HORIZON`: `day` is later
+than `forwardBound` (FR-009). **409 Conflict** — `TIME_BLOCK_OVERLAP`:
+overlap at the destination (FR-008).
 
 ### `DELETE /api/blocks/{id}`
 
@@ -189,8 +230,9 @@ directly). **404 Not Found** if `id` doesn't exist.
 **Request**: `{ "name": "string", "startTime": "HH:mm", "endTime": "HH:mm" }`
 (`endTime <= startTime` denotes a midnight-spanning entry).
 
-**201 Created** — the created entry. **400 Bad Request** — non-5-minute
-value or blank name. **409 Conflict** — overlaps an existing entry, using
+**201 Created** — the created entry. **400 Bad Request** —
+`INVALID_TIME_GRANULARITY`: non-5-minute value; or blank name. **409
+Conflict** — `TEMPLATE_ENTRY_OVERLAP`: overlaps an existing entry, using
 the two-day projection rule (FR-016).
 
 ### `PUT /api/routine-template/entries/{id}`

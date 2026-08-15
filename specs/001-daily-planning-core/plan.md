@@ -71,10 +71,12 @@ few dozen time blocks per day
 | I. Hexagonal Architecture with DDD | Domain (entities, value objects, `OverlapPolicy`, `MaterializationService`, repository ports) has zero framework dependencies; application module holds use cases and depends only on domain; infrastructure holds REST + persistence + Flyway; dependency direction enforced by Maven module boundaries | PASS |
 | II. Data Integrity First | Overlap prevention modeled as a PostgreSQL range column + `EXCLUDE` constraint (GiST index), on top of the domain's `OverlapPolicy`; all schema changes via Flyway migrations | PASS |
 | III. Test-Backed Development | Domain/application tested with plain JUnit 5 + AssertJ + Mockito (no Spring context), `@ParameterizedTest` planned for overlap and materialization-clipping cases; infrastructure tested with Spring Boot Test + Testcontainers; frontend with Vitest + Vue Test Utils | PASS |
-| IV. API Contract Clarity | REST resources and status codes defined in `contracts/api.md`; this is the contract's initial version, no breaking-change concern yet | PASS |
+| IV. API Contract Clarity | REST resources and status codes defined in `contracts/api.md`; this is the contract's initial version, no breaking-change concern yet | PASS (one documented deviation — `GET /api/days/{date}`'s materializing side effect — see Complexity Tracking) |
 | V. Simplicity Over Speculation (YAGNI) | Exactly the four constitution-mandated backend modules, no extra ones; no state-management library on the frontend; free-slot suggestion, weekly view, and general recurrence remain out of scope per the spec | PASS |
 
-No violations — the Complexity Tracking table is intentionally empty.
+One documented deviation — see the Complexity Tracking table below —
+covers `GET /api/days/{date}`'s materializing side effect; no other
+principle is violated.
 
 ## Project Structure
 
@@ -152,9 +154,13 @@ the domain module. The overlap/horizon/materialization rules described in
 data-model.md live in domain services (`OverlapPolicy`,
 `MaterializationService`, `HorizonState` reachability checks) with the
 database `EXCLUDE` constraint as a second, independent enforcement layer.
-Constitution Check gates above still all PASS; no entries were added to
-Complexity Tracking.
+Constitution Check gates above still all PASS; the one entry in
+Complexity Tracking (`GET /api/days/{date}`'s materializing side effect)
+was identified during this phase's API design and remains the only
+documented deviation.
 
 ## Complexity Tracking
 
-> No violations — this section is intentionally left empty.
+| Deviation | Why Needed | Simpler Alternative Rejected Because |
+|---|---|---|
+| `GET /api/days/{date}` performs a write (materializes the day on first access) instead of being side-effect-free, deviating from strict REST "GET is safe" semantics under Principle IV | Materialization must happen transparently on first view (FR-017) so the frontend's single day-navigation flow always gets a fully pre-filled day without an extra round-trip; the write is fully idempotent — repeated `GET`s after the first return the identical materialized state (research.md §4's `MaterializedDay` marker) — so the deviation is from GET's "safety" property only, not its idempotency | Splitting into a pure `GET /api/days/{date}` plus an explicit `POST /api/days/{date}/view` (or similar) mutating endpoint was considered, but rejected per Principle V: it doubles the day-fetch API surface and pushes a "materialize-then-fetch" sequencing concern onto every frontend caller, for a rule (GET must be side-effect-free) the constitution does not itself mandate — Principle IV requires *consistent conventions and meaningful status codes*, not strict HTTP-safety purity |

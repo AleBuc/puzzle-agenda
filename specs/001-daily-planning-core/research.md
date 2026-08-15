@@ -31,6 +31,15 @@ rejected as needless complexity (violates Principle V) that both the
 domain algorithm and the database constraint would have to reimplement
 identically.
 
+**Note on time zones**: `startAt`/`endAt` are naive local wall-clock
+timestamps (no time zone, no UTC conversion) — consistent with the
+single-user, no-authentication scope (Constraints in plan.md) and the
+spec's exclusively wall-clock language ("09:00", "23:00–07:00"). DST
+transitions (a day with a repeated or skipped hour) are explicitly out of
+scope for this feature: the domain treats every day as having exactly
+24 hours of wall-clock time, and no DST-aware conversion or ambiguity
+handling is implemented.
+
 ## 2. Database-level overlap enforcement (Constitution Principle II)
 
 **Decision**: Add a generated `tsrange` column (or an expression index)

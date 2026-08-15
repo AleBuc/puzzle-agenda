@@ -122,6 +122,15 @@ been materialized, this call materializes it first (FR-017, clipped
 against any pre-existing blocks per research.md §3), then returns it. A
 past day (`date < today`) is returned as-is, never materialized (FR-017).
 
+`blocks` also includes any block from the *previous* calendar day that
+spans midnight into `date` (FR-014, FR-022): such a block "belongs" to its
+start day for editing/ownership purposes (`PUT`/`DELETE /api/blocks/{id}`
+still target it there), but the portion after midnight genuinely occupies
+time on `date` too — without surfacing it, `date`'s timeline would show
+that time as free when a new block there would actually be rejected as
+overlapping. At most one such block can appear per day (two midnight-
+spanning blocks on the same day would necessarily overlap each other).
+
 **Deviation from GET safety**: this is a deliberate, documented deviation
 from strict REST "GET must be side-effect-free" semantics — see plan.md's
 Complexity Tracking table. The write is idempotent (a second `GET` after
@@ -140,6 +149,7 @@ repeated requests as safe to retry.
       "startTime": "HH:mm",
       "endTime": "HH:mm",
       "endsNextDay": false,
+      "startsPreviousDay": false,
       "name": "string | null",
       "activityId": "uuid | null",
       "activityName": "string | null"
@@ -147,9 +157,19 @@ repeated requests as safe to retry.
   ]
 }
 ```
-Blocks are returned in chronological order by `startAt`. `endsNextDay`
-is `true` when the block's `endAt` falls on the following calendar date
-(midnight-spanning, FR-014). `activityName` is populated only for
+Blocks are returned in chronological order by effective start (a
+`startsPreviousDay` block sorts first, as if starting at `00:00`).
+`endsNextDay` and `startsPreviousDay` are both relative to the requested
+`date`, not fixed properties of the block: `endsNextDay` is `true` when
+the block's `endAt` falls *after* `date` (midnight-spanning, FR-014);
+`startsPreviousDay` is `true` when the block's own start day is *before*
+`date` — i.e. this is the spillover copy described above. A block viewed
+on its own start day therefore has `endsNextDay: true` /
+`startsPreviousDay: false`; the same block viewed on the day it spills
+into has `endsNextDay: false` / `startsPreviousDay: true` (it ends within
+that day and does not spill further). Both are always `false` for the
+single-block CRUD responses below (`POST`/`PUT /api/blocks/{id}`), which
+have no "day being viewed" context. `activityName` is populated only for
 `PLANNED_ACTIVITY` blocks (`null` otherwise): per data-model.md, a
 planned-activity block's display label is its linked Activity's name, not
 its own `name` field (which is unused for that type) — this field is what

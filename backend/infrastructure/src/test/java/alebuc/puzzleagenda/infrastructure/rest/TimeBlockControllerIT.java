@@ -185,6 +185,34 @@ class TimeBlockControllerIT {
     }
 
     @Test
+    void midnightSpanningBlockAppearsOnBothTheStartDayAndTheSpilloverDay() {
+        ApiResponse created = post(
+                "/api/days/" + TODAY + "/blocks",
+                Map.of("type", "CONSTRAINED", "startTime", "23:00", "endTime", "07:00", "name", "Sleep"));
+        assertThat(created.status()).isEqualTo(201);
+        assertThat(created.body()).containsEntry("endsNextDay", true).containsEntry("startsPreviousDay", false);
+
+        ApiResponse startDay = get("/api/days/" + TODAY);
+        assertThat((List<?>) startDay.body().get("blocks")).hasSize(1);
+
+        ApiResponse spilloverDay = get("/api/days/" + TODAY.plusDays(1));
+        List<?> spilloverBlocks = (List<?>) spilloverDay.body().get("blocks");
+        assertThat(spilloverBlocks).hasSize(1);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> spilloverBlock = (Map<String, Object>) spilloverBlocks.get(0);
+        assertThat(spilloverBlock)
+                .containsEntry("startTime", "23:00")
+                .containsEntry("endTime", "07:00")
+                .containsEntry("startsPreviousDay", true)
+                .containsEntry("endsNextDay", false);
+
+        // A new block starting at 00:00 on the spillover day must still be rejected as overlapping.
+        ApiResponse overlapping = post("/api/days/" + TODAY.plusDays(1) + "/blocks",
+                Map.of("type", "CONSTRAINED", "startTime", "00:00", "endTime", "01:00"));
+        assertThat(overlapping.status()).isEqualTo(409);
+    }
+
+    @Test
     void dayBeforeDay1IsRejectedWith404() {
         // Establish Day 1 at TODAY via a first placement, then a day before it must 404.
         post("/api/days/" + TODAY + "/blocks",

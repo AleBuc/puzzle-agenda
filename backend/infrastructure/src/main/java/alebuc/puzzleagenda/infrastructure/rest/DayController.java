@@ -34,7 +34,9 @@ public class DayController {
     @GetMapping("/days/{date}")
     public DayResponse getDay(@PathVariable LocalDate date) {
         ViewDay.DayView view = viewDay.execute(date);
-        List<TimeBlockResponse> blocks = view.blocks().stream().map(responseAssembler::toResponse).toList();
+        List<TimeBlockResponse> blocks = view.blocks().stream()
+                .map(block -> responseAssembler.toResponse(block, date))
+                .toList();
         return new DayResponse(view.date(), view.materialized(), blocks);
     }
 

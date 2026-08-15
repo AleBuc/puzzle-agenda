@@ -23,14 +23,21 @@ function formatMinutes(minutes) {
   return `${hours}:${mins}`
 }
 
+// A spillover block (startsPreviousDay) starts before this day even began, so its
+// effective start here is minute 0 — symmetric to how endsNextDay clamps the end to
+// MINUTES_PER_DAY instead of the block's literal (next-day) endTime.
+function effectiveStart(block) {
+  return block.startsPreviousDay ? 0 : toMinutes(block.startTime)
+}
+
 // Chronological blocks (FR-020) with visible free-time gaps between them (FR-022).
 const timeline = computed(() => {
-  const sorted = [...props.blocks].sort((a, b) => toMinutes(a.startTime) - toMinutes(b.startTime))
+  const sorted = [...props.blocks].sort((a, b) => effectiveStart(a) - effectiveStart(b))
   const items = []
   let cursor = 0
 
   for (const block of sorted) {
-    const start = toMinutes(block.startTime)
+    const start = effectiveStart(block)
     const end = block.endsNextDay ? MINUTES_PER_DAY : toMinutes(block.endTime)
     if (start > cursor) {
       items.push({ kind: 'gap', key: `gap-${cursor}`, startMinutes: cursor, endMinutes: start })

@@ -10,10 +10,11 @@ const emit = defineEmits(['edit', 'delete'])
 <template>
   <div class="time-block-card" :class="`time-block-card--${block.type.toLowerCase()}`">
     <span class="time-block-card__time">
-      {{ block.startTime }}–{{ block.endTime }}<span v-if="block.endsNextDay"> (+1)</span>
+      <span v-if="block.startsPreviousDay">(-1) </span>{{ block.startTime }}–{{ block.endTime
+      }}<span v-if="block.endsNextDay"> (+1)</span>
     </span>
     <span class="time-block-card__name">{{ block.name || block.activityName || block.type }}</span>
-    <span class="time-block-card__actions">
+    <span v-if="!block.startsPreviousDay" class="time-block-card__actions">
       <button type="button" @click="emit('edit', block)">Edit</button>
       <button type="button" @click="emit('delete', block)">Delete</button>
     </span>

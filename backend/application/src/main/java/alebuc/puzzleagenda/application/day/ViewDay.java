@@ -23,6 +23,15 @@ import java.util.Objects;
  * template on first-ever access to a today-or-future day (FR-017;
  * research.md §4) — idempotent via the {@code MaterializedDay} marker, and
  * never applied to a past day.
+ *
+ * <p>Also includes any block from the *previous* day that spans midnight
+ * into this one (FR-014, FR-022): such a block "belongs" to its start day
+ * ({@code TimeBlock.day()}) for editing/ownership purposes, but the portion
+ * after midnight genuinely occupies time on this day too — without it, this
+ * day's timeline would show that time as free when a new block there would
+ * actually be rejected as overlapping. At most one block per day can span
+ * midnight (two would necessarily overlap each other), so this never
+ * produces more than one such block.
  */
 public final class ViewDay {
 
@@ -56,6 +65,9 @@ public final class ViewDay {
         horizonState.checkReachable(date, today);
 
         List<TimeBlock> blocks = new ArrayList<>(timeBlockRepository.findByDay(date));
+        timeBlockRepository.findByDay(date.minusDays(1)).stream()
+                .filter(block -> block.range().spansMidnight())
+                .forEach(blocks::add);
 
         boolean materialized = materializedDayRepository.isMaterialized(date);
         if (!materialized && !date.isBefore(today)) {

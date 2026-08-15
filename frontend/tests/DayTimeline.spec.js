@@ -42,6 +42,49 @@ describe('DayTimeline', () => {
     expect(gaps).toEqual(['Free 00:00–23:00'])
   })
 
+  it('treats a spillover block (startsPreviousDay) as occupying from midnight (no leading gap)', () => {
+    const wrapper = mount(DayTimeline, {
+      props: {
+        blocks: [
+          {
+            id: '1',
+            type: 'ROUTINE',
+            startTime: '23:00',
+            endTime: '07:00',
+            endsNextDay: false,
+            startsPreviousDay: true,
+            name: 'Sleep',
+            activityId: null,
+          },
+        ],
+      },
+    })
+
+    const gaps = wrapper.findAll('.day-timeline__gap').map((g) => g.text())
+    expect(gaps).toEqual(['Free 07:00–24:00'])
+  })
+
+  it('hides edit/delete actions for a spillover block', () => {
+    const wrapper = mount(DayTimeline, {
+      props: {
+        blocks: [
+          {
+            id: '1',
+            type: 'ROUTINE',
+            startTime: '23:00',
+            endTime: '07:00',
+            endsNextDay: false,
+            startsPreviousDay: true,
+            name: 'Sleep',
+            activityId: null,
+          },
+        ],
+      },
+    })
+
+    expect(wrapper.find('.time-block-card__actions').exists()).toBe(false)
+  })
+
   it('emits edit and delete events from the underlying block card', async () => {
     const wrapper = mount(DayTimeline, { props: { blocks } })
 

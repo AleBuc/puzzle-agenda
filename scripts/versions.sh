@@ -103,9 +103,19 @@ assert_rc_semver() {
 }
 
 # next_rc <main_version>
-# Bare X.Y.Z              -> X.(Y+1).0-rc.1
+# Bare X.Y.Z              -> X.Y.(Z+1)-rc.1
 # X.Y.Z-rc.N              -> X.Y.Z-rc.(N+1)
 # Anything else           -> prints nothing, returns 1
+#
+# Deliberately assumes the *smallest* possible next release (a patch), not
+# a minor: whatever semantic-release actually computes for the real release
+# (patch, minor, or major) is then guaranteed to be numerically greater
+# than this rc baseline, which is what keeps a release/X.Y.Z branch's
+# version always passing version-check's semver_gt-against-main check.
+# Assuming "next minor" instead can under-shoot: if only fix: commits land
+# between releases, the real next version is a patch, which can sort BELOW
+# an already-bumped "next minor" rc baseline (e.g. 0.1.1 < 0.2.0-rc.2) and
+# get a correct release PR wrongly rejected.
 next_rc() {
   v=$1
   if assert_rc_semver "$v"; then
@@ -117,7 +127,8 @@ next_rc() {
   if assert_bare_semver "$v"; then
     x=$(echo "$v" | cut -d. -f1)
     y=$(echo "$v" | cut -d. -f2)
-    echo "${x}.$((y + 1)).0-rc.1"
+    z=$(echo "$v" | cut -d. -f3)
+    echo "${x}.${y}.$((z + 1))-rc.1"
     return 0
   fi
   return 1

@@ -1,0 +1,106 @@
+#!/bin/sh
+# Best-effort local guard for the version-bump rule (rule B in
+# CONTRIBUTING.md#versioning). NOT a security boundary: `git push
+# --no-verify` skips it, and it's inert until a developer opts in via
+# `scripts/setup-dev.sh` (git config core.hooksPath .githooks). The
+# authoritative check is the version-check job in .github/workflows/ci.yml
+# — this hook only exists to give faster local feedback than a CI round trip.
+#
+# Standard git pre-push hook protocol: reads "<local ref> <local sha>
+# <remote ref> <remote sha>" lines from stdin, one per ref being pushed.
+
+[ -n "${PUZZLE_SKIP_VERSION_HOOK:-}" ] && exit 0
+
+root=$(git rev-parse --show-toplevel) || exit 0
+# shellcheck source=../scripts/versions.sh
+. "$root/scripts/versions.sh" || exit 0
+
+remote=$1
+zero_sha="0000000000000000000000000000000000000000"
+
+print_mismatch_help() {
+  echo "pre-push: backend/pom.xml, frontend/package.json and" >&2
+  echo "          frontend/package-lock.json disagree on the version:" >&2
+  echo "            pom.xml           : $1" >&2
+  echo "            package.json      : $2" >&2
+  echo "            package-lock.json : $3 / $4" >&2
+  echo "          All must carry the exact same version. See" >&2
+  echo "          scripts/set-version.sh, or CONTRIBUTING.md#versioning." >&2
+}
+
+print_stale_rc_help() {
+  echo "pre-push: version check failed — this branch's rc number is stale." >&2
+  echo "            main    : $1" >&2
+  echo "            branch  : $2" >&2
+  echo "            expected: $3" >&2
+  echo "          To fix:" >&2
+  echo "            git fetch origin && git rebase origin/main" >&2
+  echo "            # resolve version conflicts by taking main's side, e.g.:" >&2
+  echo "            git checkout origin/main -- backend/pom.xml backend/*/pom.xml \\" >&2
+  echo "                                        frontend/package.json frontend/package-lock.json" >&2
+  echo "            git add -A && git rebase --continue" >&2
+  echo "            ./scripts/bump-rc.sh   # prints the new version, then:" >&2
+  echo "            git commit -am \"chore: bump version to <version printed above>\"" >&2
+  echo "            git push --force-with-lease" >&2
+  echo "          See CONTRIBUTING.md#versioning." >&2
+}
+
+print_release_help() {
+  echo "pre-push: this looks like a release branch (release/X.Y.Z) but its" >&2
+  echo "          version files don't match. A release branch's version must:" >&2
+  echo "            - be a bare X.Y.Z (no -rc suffix)" >&2
+  echo "            - exactly equal the X.Y.Z in the branch name" >&2
+  echo "            - be greater than main's current version" >&2
+  echo "          Release branches are normally created by the release-prepare" >&2
+  echo "          workflow — hand-editing one is unusual; double check intent." >&2
+}
+
+status=0
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$local_ref" in refs/heads/*) ;; *) continue ;; esac
+  [ "$local_sha" = "$zero_sha" ] && continue    # branch deletion, nothing to check
+  branch=${local_ref#refs/heads/}
+  [ "$branch" = "main" ] && continue            # main is never pushed directly by design
+
+  if ! git fetch --quiet --no-tags --depth=1 "$remote" main 2>/dev/null; then
+    echo "pre-push: could not fetch '$remote main' — skipping local version check" >&2
+    echo "          (CI's version-check job will still verify this)" >&2
+    continue
+  fi
+  main_version=$(git show FETCH_HEAD:backend/pom.xml | read_pom_version -)
+
+  pom=$(git show "$local_sha:backend/pom.xml" | read_pom_version -)
+  pkg=$(git show "$local_sha:frontend/package.json" | read_json_version -)
+  lock=$(git show "$local_sha:frontend/package-lock.json" | read_lock_versions -)
+  lock_top=$(echo "$lock" | sed -n 1p)
+  lock_pkg=$(echo "$lock" | sed -n 2p)
+
+  if ! assert_all_equal "$pom" "$pkg" "$lock_top" "$lock_pkg"; then
+    print_mismatch_help "$pom" "$pkg" "$lock_top" "$lock_pkg"
+    status=1
+    continue
+  fi
+
+  case "$branch" in
+    release/*)
+      want=${branch#release/}
+      if ! assert_bare_semver "$pom" || [ "$pom" != "$want" ] || ! semver_gt "$pom" "$main_version"; then
+        print_release_help
+        status=1
+      fi
+      ;;
+    *)
+      want=$(next_rc "$main_version") || {
+        echo "pre-push: cannot parse main's version '$main_version' — skipping (CI will verify)" >&2
+        continue
+      }
+      if [ "$pom" != "$want" ]; then
+        print_stale_rc_help "$main_version" "$pom" "$want"
+        status=1
+      fi
+      ;;
+  esac
+done
+
+exit $status

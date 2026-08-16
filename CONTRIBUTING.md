@@ -18,15 +18,27 @@ Releases are manual and PR-based (see [Releasing](#releasing-a-new-version)
 below). Between releases, `main` carries a working `-rc.N` version:
 
 ```
-0.1.0  --(first PR after release)-->  0.2.0-rc.1  -->  0.2.0-rc.2  -->  ...  --(release)-->  0.2.0
+0.1.0  --(first PR after release)-->  0.1.1-rc.1  -->  0.1.1-rc.2  -->  ...  --(release)-->  0.1.1 or 0.2.0 or 1.0.0
 ```
 
 **Rule: every normal PR must set the version to exactly main's current
-version with the rc number incremented by 1** — same `X.Y` base, `rc.N+1`.
-The first PR merged after a release bumps to the next minor's `rc.1`. This
-applies to **both** `backend/pom.xml` (parent + all 4 child modules, kept in
-sync automatically by `versions-maven-plugin`) and `frontend/package.json` +
-`frontend/package-lock.json` — all of them must carry the identical version.
+version with the rc number incremented by 1** — same `X.Y.Z` base, `rc.N+1`.
+The first PR merged after a release bumps to the **next patch's** `rc.1`
+(`0.1.0` → `0.1.1-rc.1`), not the next minor. This is deliberate: it's the
+smallest possible next release, so whatever semantic-release actually
+computes when a release is prepared — patch, minor, or major, depending on
+the real commits since the last tag — is guaranteed to sort *above* this
+rc baseline. Assuming "next minor" instead can under-shoot: if only `fix:`
+commits land before a release, the real next version is a patch, which can
+sort *below* an already-bumped "next minor" rc (`0.1.1` < `0.2.0-rc.2`) and
+get a legitimate release PR wrongly rejected by `version-check`. The rc
+number itself carries no meaning about *what kind* of release is coming —
+only the release PR's computed version does.
+
+This applies to **both** `backend/pom.xml` (parent + all 4 child modules,
+kept in sync automatically by `versions-maven-plugin`) and
+`frontend/package.json` + `frontend/package-lock.json` — all of them must
+carry the identical version.
 
 Bump your branch's version with:
 

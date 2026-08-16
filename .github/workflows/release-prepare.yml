@@ -1,0 +1,135 @@
+name: release-prepare
+
+# Manual, PR-based release (see CONTRIBUTING.md#versioning). This workflow
+# never runs on push — it computes the next version via semantic-release
+# --dry-run, sets it in both projects, and opens a release/X.Y.Z PR for a
+# human to review and merge. release-publish.yml does the actual tagging
+# once that PR is merged.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-prepare
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_PR_TOKEN }}
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '25'
+          cache: maven
+
+      - name: Compute next version and release notes (dry-run)
+        id: compute
+        env:
+          RELEASE_CAPTURE_DIR: ${{ runner.temp }}/release
+        run: |
+          mkdir -p "$RELEASE_CAPTURE_DIR"
+          npx --yes semantic-release@24 --dry-run
+
+          if [ ! -s "$RELEASE_CAPTURE_DIR/version" ] || [ ! -s "$RELEASE_CAPTURE_DIR/notes.md" ]; then
+            echo "::error::No releasable commits since the last tag. semantic-release computed no new version, so there is nothing to release. Merge at least one feat/fix/perf (or breaking-change) commit to main, then re-run this workflow."
+            exit 1
+          fi
+
+          version=$(cat "$RELEASE_CAPTURE_DIR/version")
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "branch=release/$version" >> "$GITHUB_OUTPUT"
+
+      - name: Guard against an existing release branch or open release PR
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN }}
+        run: |
+          branch="${{ steps.compute.outputs.branch }}"
+
+          if git ls-remote --exit-code --heads origin "$branch" >/dev/null 2>&1; then
+            echo "::error::Branch $branch already exists on origin. This version may already be prepared — delete the branch (or close/merge its PR) before re-running."
+            exit 1
+          fi
+
+          existing_pr=$(gh pr list --state open --head "$branch" --json number --jq '.[0].number // empty')
+          if [ -n "$existing_pr" ]; then
+            echo "::error::PR #$existing_pr already targets $branch. Close or merge it before re-running."
+            exit 1
+          fi
+
+      - name: Set versions
+        run: ./scripts/set-version.sh "${{ steps.compute.outputs.version }}"
+
+      - name: Sanity check versions after set-version.sh
+        run: |
+          . ./scripts/versions.sh
+          pom=$(read_pom_version backend/pom.xml)
+          pkg=$(read_json_version frontend/package.json)
+          lock=$(read_lock_versions frontend/package-lock.json)
+          lock_top=$(echo "$lock" | sed -n 1p)
+          lock_pkg=$(echo "$lock" | sed -n 2p)
+          expected="${{ steps.compute.outputs.version }}"
+          if ! assert_all_equal "$pom" "$pkg" "$lock_top" "$lock_pkg" || [ "$pom" != "$expected" ]; then
+            echo "::error::Version mismatch after set-version.sh: pom=$pom pkg=$pkg lock=$lock_top/$lock_pkg expected=$expected"
+            exit 1
+          fi
+
+      - name: Create release branch and commit
+        env:
+          GIT_AUTHOR_NAME: release-prepare[bot]
+          GIT_AUTHOR_EMAIL: release-prepare-bot@users.noreply.github.com
+          GIT_COMMITTER_NAME: release-prepare[bot]
+          GIT_COMMITTER_EMAIL: release-prepare-bot@users.noreply.github.com
+        run: |
+          branch="${{ steps.compute.outputs.branch }}"
+          version="${{ steps.compute.outputs.version }}"
+          git switch -c "$branch"
+          git add backend frontend
+          git commit -m "chore(release): $version"
+          git push origin "$branch"
+
+      - name: Upload release notes artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-notes-${{ steps.compute.outputs.version }}
+          path: ${{ runner.temp }}/release/notes.md
+          retention-days: 30
+
+      - name: Open release PR
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN }}
+        run: |
+          version="${{ steps.compute.outputs.version }}"
+          branch="${{ steps.compute.outputs.branch }}"
+          body_file="${{ runner.temp }}/release/pr-body.md"
+          {
+            echo "## Release $version"
+            echo ""
+            cat "${{ runner.temp }}/release/notes.md"
+            echo ""
+            echo "---"
+            echo ""
+            echo "Merging this PR tags \`$version\` and publishes a GitHub Release with the notes above (see release-publish.yml)."
+          } > "$body_file"
+          gh pr create \
+            --base main \
+            --head "$branch" \
+            --title "chore(release): $version" \
+            --body-file "$body_file"

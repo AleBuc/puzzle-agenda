@@ -18,6 +18,7 @@
         "test",
         "spec"
       ]
-    ]
+    ],
+    "body-max-line-length": [0]
   }
 }

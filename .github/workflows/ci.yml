@@ -66,6 +66,22 @@ jobs:
               fi
               echo "version-check: release branch $branch correctly set to $pom (main was $main_version)"
               ;;
+            dependabot/*)
+              # Dependabot has no knowledge of the rc-bump rule and can't run
+              # scripts/bump-rc.sh. Accept either: version left untouched
+              # (main doesn't move on merge — a no-op for versioning, which
+              # is fine) or properly bumped to the next rc (if someone bumped
+              # it by hand on top of Dependabot's branch).
+              expected=$(next_rc "$main_version") || {
+                echo "::error::main's version '$main_version' is neither a bare release (X.Y.Z) nor an rc version (X.Y.Z-rc.N) — main needs a one-time version bootstrap before version-check can evaluate PRs against it."
+                exit 1
+              }
+              if [ "$pom" != "$main_version" ] && [ "$pom" != "$expected" ]; then
+                echo "::error::Dependabot branch $branch sets version $pom, which is neither main's current version ($main_version — left untouched) nor the next rc ($expected — properly bumped). Something unexpected changed this file."
+                exit 1
+              fi
+              echo "version-check: dependabot branch $branch is version-exempt (found $pom)"
+              ;;
             *)
               expected=$(next_rc "$main_version") || {
                 echo "::error::main's version '$main_version' is neither a bare release (X.Y.Z) nor an rc version (X.Y.Z-rc.N) — main needs a one-time version bootstrap before version-check can evaluate PRs against it."

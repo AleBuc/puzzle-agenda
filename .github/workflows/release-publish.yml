@@ -1,0 +1,110 @@
+name: release-publish
+
+# Fires when a PR closes. Only acts when it was merged AND its head branch
+# is release/X.Y.Z (see release-prepare.yml) — every other closed PR is a
+# no-op here. Creates the git tag and GitHub Release at the PR's merge
+# commit. Uses GITHUB_TOKEN throughout (not the release-PR PAT): tags and
+# releases don't trigger further workflow runs when created this way,
+# which is what keeps this loop-safe (see CONTRIBUTING.md#versioning).
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-publish-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  tag-and-release:
+    if: >-
+      github.event.pull_request.merged == true &&
+      startsWith(github.event.pull_request.head.ref, 'release/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: read   # gh pr view, to read the merged PR's body as release notes
+    steps:
+      - name: Derive version from branch name
+        id: version
+        run: |
+          ref="${{ github.event.pull_request.head.ref }}"
+          version="${ref#release/}"
+          if ! echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Branch name '$ref' does not encode a valid bare X.Y.Z version."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # Never checks out head.ref directly — delete_branch_on_merge means
+      # it no longer exists by the time this runs. merge_commit_sha is
+      # immutable in the event payload and is what actually landed on main.
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
+          fetch-depth: 1
+
+      - name: Verify manifests match the branch-name version
+        run: |
+          . ./scripts/versions.sh
+          pom=$(read_pom_version backend/pom.xml)
+          pkg=$(read_json_version frontend/package.json)
+          lock=$(read_lock_versions frontend/package-lock.json)
+          lock_top=$(echo "$lock" | sed -n 1p)
+          lock_pkg=$(echo "$lock" | sed -n 2p)
+          expected="${{ steps.version.outputs.version }}"
+          if ! assert_all_equal "$pom" "$pkg" "$lock_top" "$lock_pkg" || [ "$pom" != "$expected" ]; then
+            echo "::error::Merged release PR's manifests (pom=$pom pkg=$pkg lock=$lock_top/$lock_pkg) don't match its branch-name version ($expected). Refusing to tag — this should have been caught by version-check before merge."
+            exit 1
+          fi
+
+      - name: Fetch release notes from the merged PR body
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh pr view "${{ github.event.pull_request.number }}" --json body -q .body > "${{ runner.temp }}/notes.md"
+
+      - name: Create or verify the release tag (idempotent — safe to re-run)
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          sha="${{ github.event.pull_request.merge_commit_sha }}"
+          if git fetch origin "refs/tags/$version" 2>/dev/null; then
+            existing=$(git rev-parse "FETCH_HEAD^{commit}")
+            if [ "$existing" = "$sha" ]; then
+              echo "Tag $version already exists at $sha — nothing to do (safe re-run)."
+            else
+              echo "::error::Tag $version already exists at $existing but this release expects $sha. Not force-moving a release tag — manual intervention required."
+              exit 1
+            fi
+          else
+            git config user.name "release-publish[bot]"
+            git config user.email "release-publish-bot@users.noreply.github.com"
+            git tag -a "$version" "$sha" -m "$version"
+            git push origin "$version"
+          fi
+
+      - name: Create or update the GitHub Release (idempotent — safe to re-run)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          if gh release view "$version" >/dev/null 2>&1; then
+            gh release edit "$version" --notes-file "${{ runner.temp }}/notes.md"
+          else
+            gh release create "$version" --title "$version" --notes-file "${{ runner.temp }}/notes.md"
+          fi
+
+      - name: Job summary
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version="${{ steps.version.outputs.version }}"
+          {
+            echo "### Released $version"
+            echo ""
+            echo "- Tag: [$version](https://github.com/${{ github.repository }}/releases/tag/$version)"
+            echo "- Commit: ${{ github.event.pull_request.merge_commit_sha }}"
+          } >> "$GITHUB_STEP_SUMMARY"

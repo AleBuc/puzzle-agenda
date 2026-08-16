@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    uses: ./.github/workflows/tests.yml
+
+  # Enforces the version-bump rule (CONTRIBUTING.md#versioning): every PR
+  # must set backend/pom.xml + frontend/package.json + package-lock.json
+  # to main's current version with the rc number incremented by 1 — or,
+  # on a release/X.Y.Z branch, to the bare version the branch name encodes.
+  # Deliberately no `paths:` filter: the rule applies to every PR
+  # regardless of what it touches, and a required check that's filtered
+  # out of some PRs would block their merge button forever.
+  version-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Check version-bump rule
+        run: |
+          . ./scripts/versions.sh
+
+          git fetch --quiet --no-tags --depth=1 origin main
+          main_version=$(git show FETCH_HEAD:backend/pom.xml | read_pom_version -)
+
+          pom=$(read_pom_version backend/pom.xml)
+          pkg=$(read_json_version frontend/package.json)
+          lock=$(read_lock_versions frontend/package-lock.json)
+          lock_top=$(echo "$lock" | sed -n 1p)
+          lock_pkg=$(echo "$lock" | sed -n 2p)
+
+          if ! assert_all_equal "$pom" "$pkg" "$lock_top" "$lock_pkg"; then
+            echo "::error::backend/pom.xml, frontend/package.json and frontend/package-lock.json disagree on the version (pom=$pom pkg=$pkg lock=$lock_top/$lock_pkg). All three must carry the exact same version — see scripts/set-version.sh, or CONTRIBUTING.md#versioning."
+            exit 1
+          fi
+
+          branch="${{ github.head_ref }}"
+
+          case "$branch" in
+            release/*)
+              want="${branch#release/}"
+              ok=1
+              assert_bare_semver "$pom" || ok=0
+              [ "$pom" = "$want" ] || ok=0
+              if [ "$ok" = "1" ]; then
+                semver_gt "$pom" "$main_version" || ok=0
+              fi
+              if [ "$ok" != "1" ]; then
+                echo "::error::Release branch $branch must set a bare version (no -rc suffix) that exactly matches its branch name and is greater than main's current version ($main_version). Found: $pom. Release branches are normally created by release-prepare.yml — hand-editing one is unusual, double check intent."
+                exit 1
+              fi
+              echo "version-check: release branch $branch correctly set to $pom (main was $main_version)"
+              ;;
+            *)
+              expected=$(next_rc "$main_version") || {
+                echo "::error::main's version '$main_version' is neither a bare release (X.Y.Z) nor an rc version (X.Y.Z-rc.N) — main needs a one-time version bootstrap before version-check can evaluate PRs against it."
+                exit 1
+              }
+              if [ "$pom" != "$expected" ]; then
+                echo "::error::Version check failed — this PR's rc number is stale (main=$main_version, this PR=$pom, expected=$expected)."
+                echo "main moved while this PR was open, or this PR never bumped its version."
+                echo "Every PR must set the version to main's version with the rc number incremented by exactly 1. To fix:"
+                echo "  git fetch origin && git rebase origin/main"
+                echo "  # resolve version conflicts by taking main's side, e.g.:"
+                echo "  git checkout origin/main -- backend/pom.xml backend/*/pom.xml frontend/package.json frontend/package-lock.json"
+                echo "  git add -A && git rebase --continue"
+                echo "  ./scripts/bump-rc.sh"
+                echo "  git commit -am \"chore: bump version to $expected\""
+                echo "  git push --force-with-lease"
+                echo "See CONTRIBUTING.md#versioning."
+                exit 1
+              fi
+              echo "version-check: $branch correctly bumped to $pom (main was $main_version)"
+              ;;
+          esac

@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { useRoutineTemplate } from '../composables/useRoutineTemplate'
 import RoutineEntryForm from '../components/RoutineEntryForm.vue'
 import { ApiError } from '../api/client'
+import { resolveErrorMessage, GENERIC_ERROR_MESSAGE } from '../api/errorMessages'
 
 const { entries, loading, error, load, createEntry, editEntry, deleteEntry } = useRoutineTemplate()
 onMounted(() => load())
@@ -20,7 +21,7 @@ async function handleSubmit(payload) {
       await createEntry(payload)
     }
   } catch (err) {
-    formError.value = err instanceof ApiError ? (err.message || err.reason) : 'Something went wrong.'
+    formError.value = err instanceof ApiError ? resolveErrorMessage(err.reason) : GENERIC_ERROR_MESSAGE
   }
 }
 
@@ -35,7 +36,13 @@ function cancelEdit() {
 }
 
 async function handleDelete(entry) {
-  await deleteEntry(entry.id)
+  formError.value = null
+  try {
+    await deleteEntry(entry.id)
+  } catch (err) {
+    formError.value = err instanceof ApiError ? resolveErrorMessage(err.reason) : GENERIC_ERROR_MESSAGE
+    await load()
+  }
 }
 </script>
 

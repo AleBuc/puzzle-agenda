@@ -13,7 +13,7 @@
 
   <groupId>alebuc.puzzleagenda</groupId>
   <artifactId>puzzle-agenda-backend</artifactId>
-  <version>0.1.1-rc.3</version>
+  <version>0.1.1-rc.4</version>
   <packaging>pom</packaging>
 
   <name>Puzzle Agenda Backend</name>

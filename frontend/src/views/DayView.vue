@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { apiClient, ApiError } from '../api/client'
+import { resolveErrorMessage, GENERIC_ERROR_MESSAGE } from '../api/errorMessages'
 import { useDaySchedule } from '../composables/useDaySchedule'
 import { shiftIsoDate } from '../date-utils'
 import DayTimeline from '../components/DayTimeline.vue'
@@ -12,7 +13,7 @@ const props = defineProps({
 
 const router = useRouter()
 const dateRef = computed(() => props.date)
-const { day, loading, error, createBlock, editBlock, deleteBlock } = useDaySchedule(dateRef)
+const { day, loading, error, load, createBlock, editBlock, deleteBlock } = useDaySchedule(dateRef)
 
 // Bounds day-to-day navigation to the reachable range (FR-023).
 const horizon = ref(null)
@@ -102,7 +103,7 @@ async function submitForm() {
     editingBlockId.value = null
     form.value = emptyForm()
   } catch (err) {
-    formError.value = err instanceof ApiError ? (err.message || err.reason) : 'Something went wrong.'
+    formError.value = err instanceof ApiError ? resolveErrorMessage(err.reason) : GENERIC_ERROR_MESSAGE
   }
 }
 
@@ -133,15 +134,30 @@ async function handleDelete(block) {
     pendingFragmentDelete.value = block
     return
   }
-  await deleteBlock(block.id)
-  await loadDayActivities()
+  formError.value = null
+  try {
+    await deleteBlock(block.id)
+    await loadDayActivities()
+  } catch (err) {
+    formError.value = err instanceof ApiError ? resolveErrorMessage(err.reason) : GENERIC_ERROR_MESSAGE
+    await load()
+    await loadDayActivities()
+  }
 }
 
 async function confirmFragmentDelete(scope) {
   if (!pendingFragmentDelete.value) return
-  await deleteBlock(pendingFragmentDelete.value.id, scope)
-  pendingFragmentDelete.value = null
-  await loadDayActivities()
+  formError.value = null
+  try {
+    await deleteBlock(pendingFragmentDelete.value.id, scope)
+    pendingFragmentDelete.value = null
+    await loadDayActivities()
+  } catch (err) {
+    formError.value = err instanceof ApiError ? resolveErrorMessage(err.reason) : GENERIC_ERROR_MESSAGE
+    pendingFragmentDelete.value = null
+    await load()
+    await loadDayActivities()
+  }
 }
 
 function cancelFragmentDelete() {
@@ -193,7 +209,11 @@ function cancelFragmentDelete() {
       <h2>{{ editingBlockId ? 'Edit block' : 'Add a block' }}</h2>
       <label>
         Type
-        <select v-model="form.type" :disabled="!!editingBlockId">
+        <select
+          v-model="form.type"
+          :disabled="!!editingBlockId"
+          :title="editingBlockId ? 'Type cannot be changed after creation' : undefined"
+        >
           <option value="ROUTINE">Routine</option>
           <option value="CONSTRAINED">Constrained</option>
           <option value="PLANNED_ACTIVITY">Planned activity</option>

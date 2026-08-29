@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { useBacklog } from '../composables/useBacklog'
 import ActivityCard from '../components/ActivityCard.vue'
 import { ApiError } from '../api/client'
+import { resolveErrorMessage, GENERIC_ERROR_MESSAGE } from '../api/errorMessages'
 
 const { activities, loading, error, load, createActivity, editActivity, deleteActivity } = useBacklog()
 onMounted(() => load())
@@ -34,7 +35,7 @@ async function submitForm() {
     editingId.value = null
     form.value = emptyForm()
   } catch (err) {
-    formError.value = err instanceof ApiError ? (err.message || err.reason) : 'Something went wrong.'
+    formError.value = err instanceof ApiError ? resolveErrorMessage(err.reason) : GENERIC_ERROR_MESSAGE
   }
 }
 
@@ -60,13 +61,26 @@ async function handleDelete(activity) {
     pendingDelete.value = activity
     return
   }
-  await deleteActivity(activity.id)
+  formError.value = null
+  try {
+    await deleteActivity(activity.id)
+  } catch (err) {
+    formError.value = err instanceof ApiError ? resolveErrorMessage(err.reason) : GENERIC_ERROR_MESSAGE
+    await load()
+  }
 }
 
 async function confirmDelete() {
   if (!pendingDelete.value) return
-  await deleteActivity(pendingDelete.value.id, true)
-  pendingDelete.value = null
+  formError.value = null
+  try {
+    await deleteActivity(pendingDelete.value.id, true)
+    pendingDelete.value = null
+  } catch (err) {
+    formError.value = err instanceof ApiError ? resolveErrorMessage(err.reason) : GENERIC_ERROR_MESSAGE
+    pendingDelete.value = null
+    await load()
+  }
 }
 
 function cancelDelete() {
@@ -80,6 +94,9 @@ function cancelDelete() {
 
     <p v-if="loading">Loading…</p>
     <p v-else-if="error">Could not load the backlog.</p>
+    <p v-else-if="activities.length === 0" class="backlog-view__empty">
+      No activities yet. Create your first one below.
+    </p>
     <ul v-else class="backlog-view__list">
       <li v-for="activity in activities" :key="activity.id">
         <ActivityCard :activity="activity" @edit="startEdit" @delete="handleDelete" />

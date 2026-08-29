@@ -90,9 +90,15 @@ Enforces FR-020 (only one popup open at a time) as a single reactive value rathe
 ```text
 null                                                   // no popup open
 | { mode: "create", startTime: "HH:mm" }               // creation popup, pre-filled start
-| { mode: "details", block: TimeBlock, readOnly: boolean }
+| { mode: "details", block: TimeBlock, readOnly: boolean, sameDayFragmentCount: number }
    // readOnly = true when opened from a spillover rendering; no edit/delete,
-   // shows a "starts on {date}" notice linking to the start day
+   // shows a "starts on {date}" notice linking to the start day.
+   // sameDayFragmentCount = how many blocks share this block's activityId on
+   // the viewed day (always 1 for a non-PLANNED_ACTIVITY block); computed by
+   // DayView.vue when opening the popup (reusing its existing
+   // sameActivityFragmentCount(block) helper against day.blocks) so BlockPopup
+   // itself never needs the full blocks list — just this one number decides
+   // whether Delete acts immediately or shows the in-place scope choice (FR-013).
 ```
 
 Setting `PopupState` to a new value while non-null implicitly closes whatever was open before opening the new one (FR-020) — there is no separate "close current, then open next" step to get wrong.

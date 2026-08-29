@@ -63,10 +63,11 @@ Owns: per-type styling (reusing `TimeBlockCard.vue`'s existing color scheme — 
 
 | Prop | Type | Notes |
 |---|---|---|
-| `popupState` | `PopupState` (`null \| {mode:"create",...} \| {mode:"details", block, readOnly}`, see `data-model.md`) | `null` keeps the Reka `DialogRoot`'s `open` false. |
+| `popupState` | `PopupState` (`null \| {mode:"create",...} \| {mode:"details", block, readOnly, sameDayFragmentCount}`, see `data-model.md`) | `null` keeps the Reka `DialogRoot`'s `open` false. `sameDayFragmentCount` lets the popup itself decide, without needing the day's full block list, whether Delete acts immediately (`=== 1`) or shows the in-place scope choice (`> 1`). |
 | `dayActivities` | `Array<Activity>` | For the creation popup's activity selector (FR-010), unchanged shape from `DayView.vue`'s existing `dayActivities`. |
 | `draft` | `BlockDraft \| null` | Used only when `popupState.mode === "create"`, to pre-fill `type`/`name`/`activityId`/duration on open (`startTime` always comes from `popupState.startTime`, never the draft — see `data-model.md`). |
 | `errorMessage` | `String \| null` | Mapped, display-ready error text from the most recent failed action (FR-015); shown inside the popup without closing it. |
+| `date` | `String` (the viewed ISO date) | Used only in read-only details mode, to compute and display the block's real start day (`shiftIsoDate(date, -1)` — a spillover block always starts exactly one calendar day before the day it spills into, since no block spans more than one midnight) in the "Starts {time} on {day}" notice. |
 
 **Emits**:
 
@@ -74,7 +75,7 @@ Owns: per-type styling (reusing `TimeBlockCard.vue`'s existing color scheme — 
 |---|---|---|---|
 | `submit-create` | `{ type, startTime, endTime, name, activityId }` | The creation form is confirmed | Calls `useDaySchedule.createBlock`; on success, clears `PopupState` and the draft; on failure, sets `errorMessage` and leaves the popup open (FR-015). |
 | `submit-edit` | `{ id, startTime, endTime, name }` | The details popup's edit form is confirmed | Calls `useDaySchedule.editBlock`; same success/failure handling as above. |
-| `submit-delete` | `{ id, scope: "self" \| "activityDay" }` | Delete is confirmed (immediately for a single fragment, or after the in-place multi-fragment choice for several — FR-013) | Calls `useDaySchedule.deleteBlock`; on failure, sets `errorMessage`, reloads the day (FR-016), and leaves the popup open only if that reload still shows the target as present — otherwise closes it, matching the existing list view's stale-delete handling. |
+| `submit-delete` | `{ id, scope: "self" \| "activityDay" }` | Delete is confirmed (immediately for a single fragment, or after the in-place multi-fragment choice for several — FR-013) | Calls `useDaySchedule.deleteBlock`; on failure, sets `errorMessage` and reloads the day in the background (FR-016), but keeps the popup open — same pattern as `submit-create`/`submit-edit` — since closing it would hide the very error message just shown. |
 | `closed` | `{ reason: "escape" \| "close-button" \| "backdrop" \| "navigate-to-start-day", snapshot?: { type, name, activityId, durationMinutes } }` | The dialog closes without a successful submit | `reason: "backdrop"` (create mode only, with unsaved content) → `captureDraft(snapshot)`; any other reason → `clearDraft()`. In all cases, `PopupState` is set to `null`. For `reason: "navigate-to-start-day"`, `DayView.vue` additionally navigates to the block's start day (`shiftIsoDate(date, -1)`) after clearing `PopupState`. |
 
 In read-only details mode (`popupState.readOnly === true`), the edit form and delete actions are not rendered; instead the popup shows a "Starts {block.startTime} on {date} — edit it from that day" notice with a "go to start day" link. `block.startTime`/`block.endTime` are always the block's real local times (confirmed against `TimeBlockResponseAssembler`/`TimeBlockResponse` — never clamped to `00:00`/`24:00` in the API response), so no fallback text is needed. Activating the link emits `closed` with `reason: "navigate-to-start-day"` — the popup itself has no knowledge of the router; `DayView.vue` owns the close-then-navigate sequencing (the day-change watcher then purges any draft, per `data-model.md`'s state transitions).

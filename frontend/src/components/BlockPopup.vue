@@ -2,18 +2,26 @@
 import { computed, ref, watch } from 'vue'
 import { DialogRoot, DialogPortal, DialogOverlay, DialogContent, DialogTitle, DialogDescription, DialogClose } from 'reka-ui'
 import { toMinutes, formatMinutes } from '../time-grid-utils'
+import { shiftIsoDate } from '../date-utils'
 
 const props = defineProps({
   popupState: { type: Object, default: null },
   dayActivities: { type: Array, default: () => [] },
   draft: { type: Object, default: null },
   errorMessage: { type: String, default: null },
+  date: { type: String, default: null },
 })
 
 const emit = defineEmits(['submit-create', 'submit-edit', 'submit-delete', 'closed'])
 
 const isOpen = computed(() => props.popupState !== null)
 const isCreate = computed(() => props.popupState?.mode === 'create')
+const isDetails = computed(() => props.popupState?.mode === 'details')
+const startDayDate = computed(() => (props.date ? shiftIsoDate(props.date, -1) : null))
+
+function label(block) {
+  return block.name || block.activityName || block.type
+}
 
 function emptyForm() {
   return { type: 'CONSTRAINED', name: '', activityId: '', startTime: '', endTime: '' }
@@ -73,6 +81,62 @@ function createSnapshot() {
     activityId: form.value.activityId || null,
     durationMinutes: toMinutes(form.value.endTime) - toMinutes(form.value.startTime),
   }
+}
+
+// Details mode (User Story 3): view/edit/delete an existing block, including
+// the in-place multi-fragment delete choice (FR-013) as local view state —
+// never a second, nested dialog.
+const isEditing = ref(false)
+const isConfirmingDelete = ref(false)
+const editForm = ref({ startTime: '', endTime: '', name: '' })
+
+watch(
+  () => props.popupState,
+  (state) => {
+    isEditing.value = false
+    isConfirmingDelete.value = false
+    if (state?.mode === 'details') {
+      editForm.value = { startTime: state.block.startTime, endTime: state.block.endTime, name: state.block.name || '' }
+    }
+  },
+  { immediate: true },
+)
+
+function startEdit() {
+  isEditing.value = true
+}
+
+function cancelEdit() {
+  isEditing.value = false
+}
+
+function submitEdit() {
+  emit('submit-edit', {
+    id: props.popupState.block.id,
+    startTime: editForm.value.startTime,
+    endTime: editForm.value.endTime,
+    name: editForm.value.name || null,
+  })
+}
+
+function startDelete() {
+  if (props.popupState.sameDayFragmentCount > 1) {
+    isConfirmingDelete.value = true
+  } else {
+    emit('submit-delete', { id: props.popupState.block.id, scope: 'self' })
+  }
+}
+
+function confirmDelete(scope) {
+  emit('submit-delete', { id: props.popupState.block.id, scope })
+}
+
+function cancelDelete() {
+  isConfirmingDelete.value = false
+}
+
+function goToStartDay() {
+  emit('closed', { reason: 'navigate-to-start-day' })
 }
 
 function handleEscape() {
@@ -144,6 +208,67 @@ function handleBackdrop() {
           </div>
           <p v-if="errorMessage" class="block-popup__error">{{ errorMessage }}</p>
         </form>
+
+        <template v-else-if="isDetails && popupState.readOnly">
+          <p class="block-popup__readonly-notice">
+            Starts {{ popupState.block.startTime }} on {{ startDayDate }} — edit it from that day.
+          </p>
+          <div class="block-popup__actions">
+            <button type="button" class="block-popup__go-to-start-day" @click="goToStartDay">
+              Go to start day
+            </button>
+            <DialogClose as-child>
+              <button type="button" class="block-popup__cancel" @click="handleCloseButton">Close</button>
+            </DialogClose>
+          </div>
+        </template>
+
+        <div v-else-if="isDetails && !isEditing && !isConfirmingDelete">
+          <p class="block-popup__detail-time">{{ popupState.block.startTime }}–{{ popupState.block.endTime }}</p>
+          <p class="block-popup__detail-name">{{ label(popupState.block) }}</p>
+          <div class="block-popup__actions">
+            <button type="button" class="block-popup__edit" @click="startEdit">Edit</button>
+            <button type="button" class="block-popup__delete" @click="startDelete">Delete</button>
+            <DialogClose as-child>
+              <button type="button" class="block-popup__cancel" @click="handleCloseButton">Close</button>
+            </DialogClose>
+          </div>
+          <p v-if="errorMessage" class="block-popup__error">{{ errorMessage }}</p>
+        </div>
+
+        <form v-else-if="isDetails && isEditing" @submit.prevent="submitEdit">
+          <label>
+            Start
+            <input v-model="editForm.startTime" type="time" step="300" required />
+          </label>
+          <label>
+            End
+            <input v-model="editForm.endTime" type="time" step="300" required />
+          </label>
+          <label v-if="popupState.block.type !== 'PLANNED_ACTIVITY'">
+            Name
+            <input v-model="editForm.name" type="text" />
+          </label>
+          <div class="block-popup__actions">
+            <button type="submit">Save</button>
+            <button type="button" @click="cancelEdit">Cancel</button>
+          </div>
+          <p v-if="errorMessage" class="block-popup__error">{{ errorMessage }}</p>
+        </form>
+
+        <div v-else-if="isDetails && isConfirmingDelete" class="block-popup__delete-confirm">
+          <p>
+            "{{ label(popupState.block) }}" has more than one fragment today. Delete just this
+            one, or every fragment of this activity today?
+          </p>
+          <div class="block-popup__actions">
+            <button type="button" @click="confirmDelete('self')">Delete this fragment only</button>
+            <button type="button" class="block-popup__delete-all" @click="confirmDelete('activityDay')">
+              Delete all fragments of this activity today
+            </button>
+            <button type="button" @click="cancelDelete">Cancel</button>
+          </div>
+        </div>
       </DialogContent>
     </DialogPortal>
   </DialogRoot>

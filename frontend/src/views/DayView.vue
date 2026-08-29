@@ -66,13 +66,11 @@ function handleKeydown(event) {
 onMounted(() => window.addEventListener('keydown', handleKeydown))
 onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
 
-// Kept for handleDelete/confirmFragmentDelete below (User Story 3 replaces
-// both with BlockPopup's own errorMessage prop and removes this).
-const formError = ref(null)
-
-// Creation popup (User Story 2): PopupState (data-model.md) drives BlockPopup;
-// a same-day draft (data-model.md BlockDraft) survives a backdrop-click
-// dismissal so a slot mis-click doesn't lose what was already filled in.
+// Popup (creation from User Story 2, details/edit/delete from User Story 3):
+// PopupState (data-model.md) drives BlockPopup as a single reactive value, so
+// only one popup is ever open (FR-020). A same-day creation draft
+// (data-model.md BlockDraft) survives a backdrop-click dismissal so a slot
+// mis-click doesn't lose what was already filled in.
 const popupState = ref(null)
 const { draft, captureDraft, clearDraft } = useBlockDraft(dateRef)
 const popupError = ref(null)
@@ -80,6 +78,25 @@ const popupError = ref(null)
 function openCreatePopup({ startTime }) {
   popupError.value = null
   popupState.value = { mode: 'create', startTime }
+}
+
+// A block is one of several same-day fragments of the same activity when
+// more than one block on this day shares its activityId (FR-013); used both
+// to open the details popup with the right sameDayFragmentCount and, before
+// that, by DayGrid indirectly through the block data itself.
+function sameActivityFragmentCount(block) {
+  if (block.type !== 'PLANNED_ACTIVITY') return 1
+  return (day.value?.blocks ?? []).filter((b) => b.activityId === block.activityId).length
+}
+
+function openDetailsPopup(block) {
+  popupError.value = null
+  popupState.value = {
+    mode: 'details',
+    block,
+    readOnly: block.startsPreviousDay,
+    sameDayFragmentCount: sameActivityFragmentCount(block),
+  }
 }
 
 async function handleSubmitCreate(payload) {
@@ -94,6 +111,35 @@ async function handleSubmitCreate(payload) {
   }
 }
 
+async function handleSubmitEdit(payload) {
+  popupError.value = null
+  try {
+    await editBlock(payload.id, { startTime: payload.startTime, endTime: payload.endTime, name: payload.name })
+    await loadDayActivities()
+    popupState.value = null
+  } catch (err) {
+    popupError.value = err instanceof ApiError ? resolveErrorMessage(err.reason) : GENERIC_ERROR_MESSAGE
+  }
+}
+
+async function handleSubmitDelete({ id, scope }) {
+  popupError.value = null
+  try {
+    await deleteBlock(id, scope)
+    await loadDayActivities()
+    popupState.value = null
+  } catch (err) {
+    // Mirrors the edit/create failure pattern: show the mapped error and keep
+    // the popup open (FR-016) rather than closing it mid-error, which would
+    // hide the very message just shown. The grid behind it still refreshes
+    // to the real state (e.g. the block is already gone if this was a
+    // stale-state 404), even while the popup keeps showing its last-known info.
+    popupError.value = err instanceof ApiError ? resolveErrorMessage(err.reason) : GENERIC_ERROR_MESSAGE
+    await load()
+    await loadDayActivities()
+  }
+}
+
 function handlePopupClosed({ reason, snapshot }) {
   if (reason === 'backdrop' && snapshot) {
     captureDraft(snapshot)
@@ -101,51 +147,9 @@ function handlePopupClosed({ reason, snapshot }) {
     clearDraft()
   }
   popupState.value = null
-}
-
-// Deleting a fragment (US4): if it's the only fragment of its activity on
-// this day, delete immediately; otherwise offer a choice between this
-// fragment only and every fragment of that activity today (FR-014-FR-015).
-const pendingFragmentDelete = ref(null)
-
-function sameActivityFragmentCount(block) {
-  if (block.type !== 'PLANNED_ACTIVITY') return 1
-  return (day.value?.blocks ?? []).filter((b) => b.activityId === block.activityId).length
-}
-
-async function handleDelete(block) {
-  if (sameActivityFragmentCount(block) > 1) {
-    pendingFragmentDelete.value = block
-    return
+  if (reason === 'navigate-to-start-day') {
+    goToDate(shiftIsoDate(props.date, -1))
   }
-  formError.value = null
-  try {
-    await deleteBlock(block.id)
-    await loadDayActivities()
-  } catch (err) {
-    formError.value = err instanceof ApiError ? resolveErrorMessage(err.reason) : GENERIC_ERROR_MESSAGE
-    await load()
-    await loadDayActivities()
-  }
-}
-
-async function confirmFragmentDelete(scope) {
-  if (!pendingFragmentDelete.value) return
-  formError.value = null
-  try {
-    await deleteBlock(pendingFragmentDelete.value.id, scope)
-    pendingFragmentDelete.value = null
-    await loadDayActivities()
-  } catch (err) {
-    formError.value = err instanceof ApiError ? resolveErrorMessage(err.reason) : GENERIC_ERROR_MESSAGE
-    pendingFragmentDelete.value = null
-    await load()
-    await loadDayActivities()
-  }
-}
-
-function cancelFragmentDelete() {
-  pendingFragmentDelete.value = null
 }
 </script>
 
@@ -175,28 +179,23 @@ function cancelFragmentDelete() {
 
     <p v-if="loading">Loading…</p>
     <p v-else-if="error">Could not load this day.</p>
-    <DayGrid v-else :date="date" :blocks="day?.blocks ?? []" @activate-slot="openCreatePopup" />
-
-    <div v-if="pendingFragmentDelete" class="day-view__confirm">
-      <p>
-        "{{ pendingFragmentDelete.activityName }}" has more than one fragment today. Delete just
-        this one, or every fragment of this activity today?
-      </p>
-      <button type="button" @click="confirmFragmentDelete('self')">Delete this fragment only</button>
-      <button type="button" @click="confirmFragmentDelete('activityDay')">
-        Delete all fragments of this activity today
-      </button>
-      <button type="button" @click="cancelFragmentDelete">Cancel</button>
-    </div>
-
-    <p v-if="formError" class="day-view__error">{{ formError }}</p>
+    <DayGrid
+      v-else
+      :date="date"
+      :blocks="day?.blocks ?? []"
+      @activate-slot="openCreatePopup"
+      @activate-block="openDetailsPopup"
+    />
 
     <BlockPopup
       :popup-state="popupState"
       :day-activities="dayActivities"
       :draft="draft"
       :error-message="popupError"
+      :date="date"
       @submit-create="handleSubmitCreate"
+      @submit-edit="handleSubmitEdit"
+      @submit-delete="handleSubmitDelete"
       @closed="handlePopupClosed"
     />
   </section>
@@ -210,19 +209,4 @@ function cancelFragmentDelete() {
   gap: 1rem;
 }
 
-.day-view__error {
-  color: #c33;
-}
-
-.day-view__confirm {
-  margin-top: 1rem;
-  padding: 0.75rem;
-  border: 1px solid #d1555c;
-  border-radius: 0.25rem;
-  background: #fdecec;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.5rem;
-}
 </style>

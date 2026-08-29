@@ -27,11 +27,54 @@ async function mountPopup(props = {}) {
       dayActivities,
       draft: null,
       errorMessage: null,
+      date: '2026-08-29',
       ...props,
     },
   })
   await nextTick()
   return wrapper
+}
+
+function singleFragmentBlock() {
+  return {
+    id: 'b1',
+    type: 'CONSTRAINED',
+    startTime: '09:00',
+    endTime: '10:00',
+    name: 'Standup',
+    activityId: null,
+    activityName: null,
+    startsPreviousDay: false,
+    endsNextDay: false,
+  }
+}
+
+function plannedActivityBlock() {
+  return {
+    id: 'b2',
+    type: 'PLANNED_ACTIVITY',
+    startTime: '07:00',
+    endTime: '07:20',
+    name: null,
+    activityId: 'a2',
+    activityName: 'Course a pied',
+    startsPreviousDay: false,
+    endsNextDay: false,
+  }
+}
+
+function spilloverBlock() {
+  return {
+    id: 'b3',
+    type: 'ROUTINE',
+    startTime: '22:30',
+    endTime: '07:00',
+    name: 'Sleep',
+    activityId: null,
+    activityName: null,
+    startsPreviousDay: true,
+    endsNextDay: false,
+  }
 }
 
 describe('BlockPopup (creation mode)', () => {
@@ -141,6 +184,117 @@ describe('BlockPopup (creation mode)', () => {
     expect(endInput.element.value).toBe('14:30')
     expect(body().find('select[name="type"]').element.value).toBe('PLANNED_ACTIVITY')
     expect(body().find('select[name="activity"]').element.value).toBe('a1')
+    wrapper.unmount()
+  })
+})
+
+describe('BlockPopup (details mode)', () => {
+  afterEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  it('shows the block type, time range, and name with edit/delete actions', async () => {
+    const block = singleFragmentBlock()
+    const wrapper = await mountPopup({ popupState: { mode: 'details', block, readOnly: false, sameDayFragmentCount: 1 } })
+
+    const content = body().find('.block-popup__content')
+    expect(content.text()).toContain('09:00–10:00')
+    expect(content.text()).toContain('Standup')
+    expect(body().find('.block-popup__edit').exists()).toBe(true)
+    expect(body().find('.block-popup__delete').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('shows the linked activity name for a planned-activity block', async () => {
+    const wrapper = await mountPopup({
+      popupState: { mode: 'details', block: plannedActivityBlock(), readOnly: false, sameDayFragmentCount: 1 },
+    })
+    expect(body().find('.block-popup__content').text()).toContain('Course a pied')
+    wrapper.unmount()
+  })
+
+  it('emits submit-edit with the updated time range on a valid edit', async () => {
+    const block = singleFragmentBlock()
+    const wrapper = await mountPopup({ popupState: { mode: 'details', block, readOnly: false, sameDayFragmentCount: 1 } })
+
+    await body().find('.block-popup__edit').trigger('click')
+    await body().find('input[type="time"]').setValue('11:00')
+    await body().find('form').trigger('submit')
+
+    expect(wrapper.emitted('submit-edit')).toBeTruthy()
+    const [payload] = wrapper.emitted('submit-edit')[0]
+    expect(payload).toMatchObject({ id: 'b1', startTime: '11:00', endTime: '10:00' })
+    wrapper.unmount()
+  })
+
+  it('emits submit-delete with scope "self" immediately for a block that is its activity\'s only fragment today', async () => {
+    const block = singleFragmentBlock()
+    const wrapper = await mountPopup({ popupState: { mode: 'details', block, readOnly: false, sameDayFragmentCount: 1 } })
+
+    await body().find('.block-popup__delete').trigger('click')
+
+    expect(body().find('.block-popup__delete-confirm').exists()).toBe(false)
+    expect(wrapper.emitted('submit-delete')).toBeTruthy()
+    const [payload] = wrapper.emitted('submit-delete')[0]
+    expect(payload).toEqual({ id: 'b1', scope: 'self' })
+    wrapper.unmount()
+  })
+
+  it('shows the in-place fragment-scope choice before deleting when the activity has more than one fragment today', async () => {
+    const block = plannedActivityBlock()
+    const wrapper = await mountPopup({ popupState: { mode: 'details', block, readOnly: false, sameDayFragmentCount: 2 } })
+
+    await body().find('.block-popup__delete').trigger('click')
+
+    expect(wrapper.emitted('submit-delete')).toBeFalsy()
+    const confirm = body().find('.block-popup__delete-confirm')
+    expect(confirm.exists()).toBe(true)
+
+    await confirm.find('.block-popup__delete-all').trigger('click')
+
+    expect(wrapper.emitted('submit-delete')).toBeTruthy()
+    const [payload] = wrapper.emitted('submit-delete')[0]
+    expect(payload).toEqual({ id: 'b2', scope: 'activityDay' })
+    wrapper.unmount()
+  })
+
+  it('shows a mapped error without losing the current details/edit view', async () => {
+    const block = singleFragmentBlock()
+    const wrapper = await mountPopup({
+      popupState: { mode: 'details', block, readOnly: false, sameDayFragmentCount: 1 },
+      errorMessage: 'This block no longer exists. The view has been refreshed.',
+    })
+
+    expect(body().find('.block-popup__error').text()).toBe('This block no longer exists. The view has been refreshed.')
+    expect(body().find('.block-popup__content').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('renders a read-only notice with no edit/delete actions for a spillover (continuation-only) block', async () => {
+    const wrapper = await mountPopup({
+      popupState: { mode: 'details', block: spilloverBlock(), readOnly: true, sameDayFragmentCount: 1 },
+      date: '2026-08-29',
+    })
+
+    const content = body().find('.block-popup__content')
+    expect(content.text()).toContain('22:30')
+    expect(content.text()).toContain('2026-08-28')
+    expect(body().find('.block-popup__edit').exists()).toBe(false)
+    expect(body().find('.block-popup__delete').exists()).toBe(false)
+    expect(body().find('.block-popup__go-to-start-day').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('emits closed with reason "navigate-to-start-day" when the read-only link is activated', async () => {
+    const wrapper = await mountPopup({
+      popupState: { mode: 'details', block: spilloverBlock(), readOnly: true, sameDayFragmentCount: 1 },
+    })
+
+    await body().find('.block-popup__go-to-start-day').trigger('click')
+
+    expect(wrapper.emitted('closed')).toBeTruthy()
+    const [payload] = wrapper.emitted('closed')[0]
+    expect(payload).toEqual({ reason: 'navigate-to-start-day' })
     wrapper.unmount()
   })
 })

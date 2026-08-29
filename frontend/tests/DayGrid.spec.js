@@ -83,6 +83,7 @@ describe('DayGrid', () => {
     })
 
     it('scrolls to the start of the day when viewing a day that is not today', async () => {
+      vi.setSystemTime(new Date('2026-08-29T12:00:00'))
       const wrapper = mount(DayGrid, { props: { date: '2026-08-30', blocks: [] }, attachTo: document.body })
       const el = wrapper.element
       Object.defineProperty(el, 'scrollHeight', { value: 2400, configurable: true })
@@ -90,6 +91,63 @@ describe('DayGrid', () => {
       await wrapper.vm.$nextTick()
       expect(el.scrollTop).toBe(0)
       wrapper.unmount()
+    })
+  })
+
+  describe('keyboard operation (US4)', () => {
+    it('is itself a keyboard-focusable element, alongside existing blocks which are already tabbable', () => {
+      const wrapper = mount(DayGrid, { props: { date: TODAY, blocks: [block()] } })
+      expect(wrapper.attributes('tabindex')).toBe('0')
+      expect(wrapper.findComponent({ name: 'GridBlock' }).attributes('tabindex')).toBe('0')
+    })
+
+    it('moves the keyboard cursor in 5-minute increments with ArrowDown/ArrowUp', async () => {
+      vi.setSystemTime(new Date('2026-08-29T00:00:00'))
+      const wrapper = mount(DayGrid, { props: { date: TODAY, blocks: [] } })
+
+      await wrapper.trigger('keydown', { key: 'ArrowDown' })
+      await wrapper.trigger('keydown', { key: 'Enter' })
+      expect(wrapper.emitted('activate-slot').at(-1)).toEqual([{ startTime: '00:05' }])
+
+      await wrapper.trigger('keydown', { key: 'ArrowUp' })
+      await wrapper.trigger('keydown', { key: 'Enter' })
+      expect(wrapper.emitted('activate-slot').at(-1)).toEqual([{ startTime: '00:00' }])
+    })
+
+    it('does not move the cursor before 00:00 or past 23:55', async () => {
+      vi.setSystemTime(new Date('2026-08-29T00:00:00'))
+      const wrapper = mount(DayGrid, { props: { date: TODAY, blocks: [] } })
+
+      await wrapper.trigger('keydown', { key: 'ArrowUp' })
+      await wrapper.trigger('keydown', { key: 'Enter' })
+      expect(wrapper.emitted('activate-slot').at(-1)).toEqual([{ startTime: '00:00' }])
+    })
+
+    it('activates the focused slot on Space as well as Enter', async () => {
+      const wrapper = mount(DayGrid, { props: { date: TODAY, blocks: [] } })
+      await wrapper.trigger('keydown', { key: ' ' })
+      expect(wrapper.emitted('activate-slot')).toBeTruthy()
+    })
+
+    it('provides a persistent "Add block" control, reachable independently of the roving cursor', () => {
+      const wrapper = mount(DayGrid, { props: { date: TODAY, blocks: [] } })
+      const addBlock = wrapper.find('.day-grid__add-block')
+      expect(addBlock.exists()).toBe(true)
+      expect(addBlock.element.tagName).toBe('BUTTON')
+    })
+
+    it('the "Add block" control defaults to the current time (snapped to 15 min) on today\'s view', async () => {
+      vi.setSystemTime(new Date('2026-08-29T09:22:00'))
+      const wrapper = mount(DayGrid, { props: { date: TODAY, blocks: [] } })
+      await wrapper.find('.day-grid__add-block').trigger('click')
+      expect(wrapper.emitted('activate-slot')).toEqual([[{ startTime: '09:15' }]])
+    })
+
+    it('the "Add block" control defaults to the start of the day on a day that is not today', async () => {
+      vi.setSystemTime(new Date('2026-08-29T09:22:00'))
+      const wrapper = mount(DayGrid, { props: { date: '2026-08-30', blocks: [] } })
+      await wrapper.find('.day-grid__add-block').trigger('click')
+      expect(wrapper.emitted('activate-slot')).toEqual([[{ startTime: '00:00' }]])
     })
   })
 })

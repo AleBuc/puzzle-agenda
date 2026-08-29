@@ -48,8 +48,13 @@ function goToDate(date) {
 // Left/Right arrow keys navigate days (bounded by the horizon, same as the
 // buttons), as long as focus isn't inside a form control that itself uses
 // arrow keys (text/time inputs, selects) — otherwise this would hijack
-// normal editing of the add/edit-block form below.
+// normal editing inside an open popup. Also suspended entirely while a popup
+// is open (FR-019/clarify Q1): the viewed day must not change out from under
+// an open dialog, and Reka's focus trap doesn't itself stop this page-level
+// listener from firing.
 function handleKeydown(event) {
+  if (popupState.value !== null) return
+
   const target = event.target
   const isFormControl = target && ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName)
   if (isFormControl) return

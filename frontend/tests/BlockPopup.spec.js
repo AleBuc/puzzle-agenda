@@ -298,3 +298,59 @@ describe('BlockPopup (details mode)', () => {
     wrapper.unmount()
   })
 })
+
+// These exercise reka-ui's real Dialog behavior (no simulated .vm.$emit
+// shortcuts) to the extent it is observable under jsdom + Vue Test Utils —
+// see research.md §7's caveat: full native Tab-key traversal and focus
+// timing are ultimately a browser guarantee from reka-ui itself (research.md
+// §1), not something this project re-implements.
+describe('BlockPopup (accessibility)', () => {
+  afterEach(() => {
+    document.body.innerHTML = ''
+  })
+
+  it('moves focus inside the dialog content when it opens', async () => {
+    const wrapper = await mountPopup()
+    await nextTick()
+
+    expect(body().find('.block-popup__content').element.contains(document.activeElement)).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('keeps focus within the dialog content while Tab is pressed repeatedly', async () => {
+    const wrapper = await mountPopup()
+    await nextTick()
+
+    const content = body().find('.block-popup__content').element
+    for (let i = 0; i < 10; i += 1) {
+      document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true }))
+      await nextTick()
+      expect(content.contains(document.activeElement)).toBe(true)
+    }
+    wrapper.unmount()
+  })
+
+  it('returns focus to the element that had it before the popup opened, once Escape closes it', async () => {
+    const trigger = document.createElement('button')
+    document.body.appendChild(trigger)
+    trigger.focus()
+    expect(document.activeElement).toBe(trigger)
+
+    // BlockPopup is fully controlled by `popupState` — reka-ui only restores
+    // focus once that prop actually flips closed, so this simulates what
+    // DayView.vue does in response to the `closed` emit: set popupState back
+    // to null.
+    const wrapper = await mountPopup({ popupState: null })
+    await wrapper.setProps({ popupState: { mode: 'create', startTime: '09:15' } })
+    await nextTick()
+    expect(document.activeElement).not.toBe(trigger)
+
+    document.activeElement?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+    await wrapper.setProps({ popupState: null })
+    await nextTick()
+
+    expect(document.activeElement).toBe(trigger)
+    wrapper.unmount()
+    trigger.remove()
+  })
+})

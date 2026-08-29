@@ -85,6 +85,8 @@ describe('DayView', () => {
 
     expect(wrapper.findAll('.grid-block')).toHaveLength(2)
     expect(wrapper.find('.time-block-card').exists()).toBe(false)
+
+    wrapper.unmount()
   })
 
   it('opens the creation popup from an empty grid slot, listing every activity with its remaining time', async () => {
@@ -286,6 +288,32 @@ describe('DayView', () => {
     await flushPromises()
 
     expect(router.currentRoute.value.params.date).toBe(shiftIsoDate(DATE, -1))
+
+    wrapper.unmount()
+  })
+
+  it('suspends the day-navigation arrow-key shortcut while a popup is open, and resumes once it closes', async () => {
+    vi.stubGlobal('fetch', mockFetch({ value: [] }))
+    router.push(`/days/${DATE}`)
+    await router.isReady()
+    const wrapper = mount(DayView, { props: { date: DATE }, global: { plugins: [router] }, attachTo: document.body })
+    await flushPromises()
+
+    await openCreatePopup(wrapper)
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    await flushPromises()
+    expect(router.currentRoute.value.params.date).toBe(DATE)
+
+    // Escape closes the popup (no unsaved content in an otherwise-empty create form).
+    const { DialogContent } = await import('reka-ui')
+    wrapper.findComponent(DialogContent).vm.$emit('escapeKeyDown', new KeyboardEvent('keydown'))
+    await flushPromises()
+    expect(body().find('.block-popup__content').exists()).toBe(false)
+
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    await flushPromises()
+    expect(router.currentRoute.value.params.date).toBe(shiftIsoDate(DATE, 1))
 
     wrapper.unmount()
   })

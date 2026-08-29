@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { DialogRoot, DialogPortal, DialogOverlay, DialogContent, DialogTitle, DialogDescription, DialogClose } from 'reka-ui'
 import { toMinutes, formatMinutes } from '../time-grid-utils'
 import { shiftIsoDate } from '../date-utils'
@@ -18,6 +18,27 @@ const isOpen = computed(() => props.popupState !== null)
 const isCreate = computed(() => props.popupState?.mode === 'create')
 const isDetails = computed(() => props.popupState?.mode === 'details')
 const startDayDate = computed(() => (props.date ? shiftIsoDate(props.date, -1) : null))
+
+// FR-017 (focus returns to the triggering element): this Dialog is fully
+// controlled by `popupState`, not opened via a <DialogTrigger>, so reka-ui's
+// own auto-focus-on-close only ever calls `.focus()` on its internal
+// `rootContext.triggerElement`, which is exclusively populated by
+// <DialogTrigger> on mount — something this component doesn't use, and
+// which isn't reachable from outside the DialogRoot's own subtree. So this
+// restores focus independently: capture whatever had focus at the moment
+// the popup opens, and hand it focus back once it closes (after reka-ui's
+// own — here, no-op — close handling has run).
+let triggerElement = null
+
+watch(isOpen, async (open, wasOpen) => {
+  if (open) {
+    triggerElement = document.activeElement
+  } else if (wasOpen && triggerElement) {
+    await nextTick()
+    triggerElement.focus()
+    triggerElement = null
+  }
+})
 
 function label(block) {
   return block.name || block.activityName || block.type

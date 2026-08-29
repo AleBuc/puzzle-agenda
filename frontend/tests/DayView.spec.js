@@ -1,5 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { nextTick } from 'vue'
+import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
 import { router } from '../src/router'
 import DayView from '../src/views/DayView.vue'
 
@@ -16,7 +17,7 @@ function dayResponse(blocks) {
   return { date: DATE, materialized: true, blocks }
 }
 
-function mockFetch(blocksRef, deleteResponse) {
+function mockFetch(blocksRef, postResponse) {
   return vi.fn((url, options = {}) => {
     const method = options.method ?? 'GET'
     if (url.includes('/horizon')) {
@@ -28,45 +29,35 @@ function mockFetch(blocksRef, deleteResponse) {
     if (url.includes(`/days/${DATE}`) && method === 'GET') {
       return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve(dayResponse(blocksRef.value)) })
     }
-    if (url.includes('/blocks/') && method === 'DELETE') {
+    if (url.includes('/blocks') && method === 'POST') {
       return Promise.resolve(
-        deleteResponse ?? { status: 204, ok: true, json: () => Promise.resolve(null) },
+        postResponse ?? { status: 201, ok: true, json: () => Promise.resolve(null) },
       )
+    }
+    if (url.includes('/blocks/') && method === 'DELETE') {
+      return Promise.resolve({ status: 204, ok: true, json: () => Promise.resolve(null) })
     }
     return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve(null) })
   })
 }
 
+// BlockPopup's DialogContent is teleported to document.body, outside the
+// mounted wrapper's own root — DOM queries for it must go through the body.
+function body() {
+  return new DOMWrapper(document.body)
+}
+
+async function openCreatePopup(wrapper) {
+  await wrapper.find('.day-grid').trigger('click')
+  await nextTick()
+  await flushPromises()
+}
+
 describe('DayView', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
+    document.body.innerHTML = ''
   })
-
-  it('lists every activity in the selector with its remaining time for this day, marking fully-planned ones', async () => {
-    vi.stubGlobal('fetch', mockFetch({ value: [] }))
-    router.push(`/days/${DATE}`)
-    await router.isReady()
-    const wrapper = mount(DayView, { props: { date: DATE }, global: { plugins: [router] } })
-    await flushPromises()
-
-    // The activity selector only renders once "Planned activity" is chosen as the block type.
-    await wrapper.find('select').setValue('PLANNED_ACTIVITY')
-    await flushPromises()
-
-    const activitySelect = wrapper.findAll('select')[1]
-    const options = activitySelect.findAll('option').map((o) => o.text())
-
-    expect(options.some((o) => o.includes('Write report') && o.includes('180min left'))).toBe(true)
-    expect(options.some((o) => o.includes('Course a pied') && o.includes('fully planned'))).toBe(true)
-  })
-
-  // NOTE: the delete / multi-fragment-scope-confirmation / error-mapping tests that
-  // used to live here (against `.time-block-card__actions` buttons rendered by the
-  // now-retired DayTimeline/TimeBlockCard list) are intentionally removed as part of
-  // 003-calendar-day-view's User Story 1: GridBlock has no per-row buttons — the whole
-  // block is clickable and emits `activate`, which DayView does not yet wire to
-  // anything. That coverage is rebuilt against the new BlockPopup-driven flow in
-  // User Story 3 (see tasks.md T021).
 
   it('renders one grid block per day block', async () => {
     const first = { id: 'b1', type: 'PLANNED_ACTIVITY', startTime: '09:00', endTime: '10:00', endsNextDay: false, name: null, activityId: 'a1', activityName: 'Write report' }
@@ -80,5 +71,68 @@ describe('DayView', () => {
 
     expect(wrapper.findAll('.grid-block')).toHaveLength(2)
     expect(wrapper.find('.time-block-card').exists()).toBe(false)
+  })
+
+  it('opens the creation popup from an empty grid slot, listing every activity with its remaining time', async () => {
+    vi.stubGlobal('fetch', mockFetch({ value: [] }))
+    router.push(`/days/${DATE}`)
+    await router.isReady()
+    const wrapper = mount(DayView, { props: { date: DATE }, global: { plugins: [router] }, attachTo: document.body })
+    await flushPromises()
+
+    await openCreatePopup(wrapper)
+
+    await body().find('select[name="type"]').setValue('PLANNED_ACTIVITY')
+    await nextTick()
+
+    const activitySelect = body().find('select[name="activity"]')
+    const options = activitySelect.findAll('option').map((o) => o.text())
+    expect(options.some((o) => o.includes('Write report') && o.includes('180min left'))).toBe(true)
+    expect(options.some((o) => o.includes('Course a pied') && o.includes('fully planned'))).toBe(true)
+
+    wrapper.unmount()
+  })
+
+  it('creates a block from an empty slot and closes the popup on success', async () => {
+    const blocksRef = { value: [] }
+    const fetchMock = mockFetch(blocksRef)
+    vi.stubGlobal('fetch', fetchMock)
+    router.push(`/days/${DATE}`)
+    await router.isReady()
+    const wrapper = mount(DayView, { props: { date: DATE }, global: { plugins: [router] }, attachTo: document.body })
+    await flushPromises()
+
+    await openCreatePopup(wrapper)
+    await body().find('form').trigger('submit')
+    await flushPromises()
+
+    const postCall = fetchMock.mock.calls.find(([, opts]) => opts?.method === 'POST')
+    expect(postCall).toBeTruthy()
+    expect(body().find('.block-popup__content').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  it('shows the mapped overlap error inside the popup without closing it when creation fails', async () => {
+    const blocksRef = { value: [] }
+    const fetchMock = mockFetch(blocksRef, {
+      status: 409,
+      ok: false,
+      json: () => Promise.resolve({ reason: 'TIME_BLOCK_OVERLAP', message: 'TimeRange[...] overlaps existing range TimeRange[...]' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    router.push(`/days/${DATE}`)
+    await router.isReady()
+    const wrapper = mount(DayView, { props: { date: DATE }, global: { plugins: [router] }, attachTo: document.body })
+    await flushPromises()
+
+    await openCreatePopup(wrapper)
+    await body().find('form').trigger('submit')
+    await flushPromises()
+
+    expect(body().find('.block-popup__error').text()).toBe('This time slot overlaps an existing block.')
+    expect(body().find('.block-popup__content').exists()).toBe(true)
+
+    wrapper.unmount()
   })
 })

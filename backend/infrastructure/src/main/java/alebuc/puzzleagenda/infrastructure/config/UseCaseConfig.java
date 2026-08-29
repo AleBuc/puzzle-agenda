@@ -94,8 +94,8 @@ public class UseCaseConfig {
     }
 
     @Bean
-    public ListActivities listActivities(ActivityRepository activityRepository) {
-        return new ListActivities(activityRepository);
+    public ListActivities listActivities(ActivityRepository activityRepository, TimeBlockRepository timeBlockRepository) {
+        return new ListActivities(activityRepository, timeBlockRepository);
     }
 
     @Bean

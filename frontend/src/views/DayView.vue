@@ -22,12 +22,21 @@ async function loadHorizon() {
 loadHorizon()
 watch(() => props.date, loadHorizon)
 
-// Backlog activities available to plan into a slot (US3).
-const unplannedActivities = ref([])
-async function loadUnplannedActivities() {
-  unplannedActivities.value = await apiClient.get('/activities?status=unplanned')
+// Backlog activities available to plan into this day, each carrying its own
+// remaining time / status for exactly this day (FR-010-FR-011) — every
+// activity stays listed, fully-planned ones just get a visual marker rather
+// than being removed from the selector.
+const dayActivities = ref([])
+async function loadDayActivities() {
+  dayActivities.value = await apiClient.get(`/activities?day=${props.date}`)
 }
-loadUnplannedActivities()
+loadDayActivities()
+watch(() => props.date, loadDayActivities)
+
+function activityOptionLabel(activity) {
+  const remaining = `${activity.remainingMinutesForDay}min left`
+  return activity.dayStatus === 'PLANNED' ? `${activity.name} (fully planned, ${remaining})` : `${activity.name} (${remaining})`
+}
 
 const previousDate = computed(() => shiftIsoDate(props.date, -1))
 const nextDate = computed(() => shiftIsoDate(props.date, 1))
@@ -73,6 +82,7 @@ async function submitForm() {
         endTime: form.value.endTime,
         name: form.value.name || null,
       })
+      await loadDayActivities()
     } else if (form.value.type === 'PLANNED_ACTIVITY') {
       await createBlock({
         type: 'PLANNED_ACTIVITY',
@@ -80,7 +90,7 @@ async function submitForm() {
         endTime: form.value.endTime,
         activityId: form.value.activityId,
       })
-      await loadUnplannedActivities()
+      await loadDayActivities()
     } else {
       await createBlock({
         type: form.value.type,
@@ -108,8 +118,34 @@ function cancelEdit() {
   form.value = emptyForm()
 }
 
+// Deleting a fragment (US4): if it's the only fragment of its activity on
+// this day, delete immediately; otherwise offer a choice between this
+// fragment only and every fragment of that activity today (FR-014-FR-015).
+const pendingFragmentDelete = ref(null)
+
+function sameActivityFragmentCount(block) {
+  if (block.type !== 'PLANNED_ACTIVITY') return 1
+  return (day.value?.blocks ?? []).filter((b) => b.activityId === block.activityId).length
+}
+
 async function handleDelete(block) {
+  if (sameActivityFragmentCount(block) > 1) {
+    pendingFragmentDelete.value = block
+    return
+  }
   await deleteBlock(block.id)
+  await loadDayActivities()
+}
+
+async function confirmFragmentDelete(scope) {
+  if (!pendingFragmentDelete.value) return
+  await deleteBlock(pendingFragmentDelete.value.id, scope)
+  pendingFragmentDelete.value = null
+  await loadDayActivities()
+}
+
+function cancelFragmentDelete() {
+  pendingFragmentDelete.value = null
 }
 </script>
 
@@ -141,6 +177,18 @@ async function handleDelete(block) {
     <p v-else-if="error">Could not load this day.</p>
     <DayTimeline v-else :blocks="day?.blocks ?? []" @edit="startEdit" @delete="handleDelete" />
 
+    <div v-if="pendingFragmentDelete" class="day-view__confirm">
+      <p>
+        "{{ pendingFragmentDelete.activityName }}" has more than one fragment today. Delete just
+        this one, or every fragment of this activity today?
+      </p>
+      <button type="button" @click="confirmFragmentDelete('self')">Delete this fragment only</button>
+      <button type="button" @click="confirmFragmentDelete('activityDay')">
+        Delete all fragments of this activity today
+      </button>
+      <button type="button" @click="cancelFragmentDelete">Cancel</button>
+    </div>
+
     <form class="day-view__form" @submit.prevent="submitForm">
       <h2>{{ editingBlockId ? 'Edit block' : 'Add a block' }}</h2>
       <label>
@@ -163,8 +211,8 @@ async function handleDelete(block) {
         Activity
         <select v-model="form.activityId" required>
           <option value="" disabled>Select a backlog activity…</option>
-          <option v-for="activity in unplannedActivities" :key="activity.id" :value="activity.id">
-            {{ activity.name }}
+          <option v-for="activity in dayActivities" :key="activity.id" :value="activity.id">
+            {{ activityOptionLabel(activity) }}
           </option>
         </select>
       </label>
@@ -204,5 +252,17 @@ async function handleDelete(block) {
 
 .day-view__error {
   color: #c33;
+}
+
+.day-view__confirm {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  border: 1px solid #d1555c;
+  border-radius: 0.25rem;
+  background: #fdecec;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.5rem;
 }
 </style>

@@ -29,8 +29,10 @@ export function useDaySchedule(dateRef) {
     await load()
   }
 
-  async function deleteBlock(id) {
-    await apiClient.delete(`/blocks/${id}`)
+  // scope: 'self' (default, this fragment only) or 'activityDay' (every fragment
+  // of the same activity on this day) — see spec.md US4 / contracts/api.md.
+  async function deleteBlock(id, scope = 'self') {
+    await apiClient.delete(`/blocks/${id}?scope=${scope}`)
     await load()
   }
 

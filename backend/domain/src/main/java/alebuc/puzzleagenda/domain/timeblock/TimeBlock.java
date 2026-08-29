@@ -1,5 +1,7 @@
 package alebuc.puzzleagenda.domain.timeblock;
 
+import alebuc.puzzleagenda.domain.exception.PlannedActivitySpansMidnightException;
+
 import java.time.LocalDate;
 import java.util.Objects;
 import java.util.Optional;
@@ -35,6 +37,7 @@ public final class TimeBlock {
         Objects.requireNonNull(type, "type must not be null");
         Objects.requireNonNull(range, "range must not be null");
         requireActivityIdConsistentWithType(type, activityId);
+        requireNoMidnightSpanIfPlannedActivity(type, range);
         return new TimeBlock(id, type, range, name, activityId);
     }
 
@@ -48,9 +51,22 @@ public final class TimeBlock {
         }
     }
 
+    /**
+     * A {@code PLANNED_ACTIVITY} fragment MUST be confined to one calendar
+     * day (FR-021) — unlike {@code ROUTINE}/{@code CONSTRAINED} blocks, which
+     * may still span midnight.
+     */
+    private static void requireNoMidnightSpanIfPlannedActivity(BlockType type, TimeRange range) {
+        if (type == BlockType.PLANNED_ACTIVITY && range.spansMidnight()) {
+            throw new PlannedActivitySpansMidnightException(
+                    "A PLANNED_ACTIVITY block must not span midnight: " + range);
+        }
+    }
+
     /** Same id/type/activityId, new range and name (FR-010: start/end/name edit only). */
     public TimeBlock withRangeAndName(TimeRange newRange, String newName) {
         Objects.requireNonNull(newRange, "newRange must not be null");
+        requireNoMidnightSpanIfPlannedActivity(type, newRange);
         return new TimeBlock(id, type, newRange, newName, activityId);
     }
 

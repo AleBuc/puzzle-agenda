@@ -59,6 +59,11 @@ class PlanActivityControllerIT {
                 .exchange((request, response) -> new ApiResponse(response.getStatusCode().value(), safeBody(response)));
     }
 
+    private ApiResponse put(String uri, Object body) {
+        return restClient.put().uri(uri).contentType(MediaType.APPLICATION_JSON).body(body)
+                .exchange((request, response) -> new ApiResponse(response.getStatusCode().value(), safeBody(response)));
+    }
+
     private ApiResponse get(String uri) {
         return restClient.get().uri(uri)
                 .exchange((request, response) -> new ApiResponse(response.getStatusCode().value(), safeBody(response)));
@@ -78,15 +83,21 @@ class PlanActivityControllerIT {
         return (Map<String, Object>) response.bodyTo(Map.class);
     }
 
-    private String createUnplannedActivity(String name) {
+    private String createActivity(String name) {
         ApiResponse created = post("/api/activities",
                 Map.of("name", name, "estimatedDurationMinutes", 30, "priority", "MEDIUM", "category", "errands"));
         return (String) created.body().get("id");
     }
 
+    private String createActivity(String name, int estimatedDurationMinutes) {
+        ApiResponse created = post("/api/activities",
+                Map.of("name", name, "estimatedDurationMinutes", estimatedDurationMinutes, "priority", "MEDIUM", "category", "sport"));
+        return (String) created.body().get("id");
+    }
+
     @Test
-    void planningAnActivityRemovesItFromTheUnplannedBacklogAndShowsItOnTheDay() {
-        String activityId = createUnplannedActivity("Grocery run");
+    void planningAnActivityKeepsItInTheBacklogWithFragmentInfo() {
+        String activityId = createActivity("Grocery run");
 
         ApiResponse created = post("/api/days/" + TODAY + "/blocks",
                 Map.of("type", "PLANNED_ACTIVITY", "startTime", "14:00", "endTime", "15:00", "activityId", activityId));
@@ -97,28 +108,36 @@ class PlanActivityControllerIT {
         ApiResponse day = get("/api/days/" + TODAY);
         assertThat((List<?>) day.body().get("blocks")).hasSize(1);
 
-        // The activity itself is now PLANNED — no longer selectable from the unplanned backlog
-        // (status is derived: an EXISTS(time_block) join, per ActivityRepositoryAdapter).
-        Integer unplannedCount = jdbcTemplate.queryForObject(
-                """
-                SELECT COUNT(*) FROM activity a
-                WHERE NOT EXISTS (SELECT 1 FROM time_block tb WHERE tb.activity_id = a.id AND tb.type = 'PLANNED_ACTIVITY')
-                """,
-                Integer.class);
-        assertThat(unplannedCount).isZero();
+        // The activity still appears in the backlog (FR-012) — it is no longer removed
+        // once planned; instead it now carries fragment/aggregate info (feature 002).
+        String rawList = restClient.get().uri("/api/activities").retrieve().body(String.class);
+        assertThat(rawList).contains(activityId).contains("\"totalFragmentCount\":1");
     }
 
     @Test
-    void planningAnAlreadyPlannedActivityIsRejectedWith409() {
-        String activityId = createUnplannedActivity("Grocery run");
+    void planningASecondFragmentOnADifferentDaySucceeds() {
+        // FR-001 (feature 002): an activity may have concurrent fragments on several days.
+        String activityId = createActivity("Write report", 300);
         post("/api/days/" + TODAY + "/blocks",
-                Map.of("type", "PLANNED_ACTIVITY", "startTime", "14:00", "endTime", "15:00", "activityId", activityId));
+                Map.of("type", "PLANNED_ACTIVITY", "startTime", "09:00", "endTime", "11:00", "activityId", activityId));
 
-        ApiResponse secondAttempt = post("/api/days/" + TODAY + "/blocks",
-                Map.of("type", "PLANNED_ACTIVITY", "startTime", "16:00", "endTime", "17:00", "activityId", activityId));
+        ApiResponse secondFragment = post("/api/days/" + TODAY.plusDays(2) + "/blocks",
+                Map.of("type", "PLANNED_ACTIVITY", "startTime", "09:00", "endTime", "11:00", "activityId", activityId));
 
-        assertThat(secondAttempt.status()).isEqualTo(409);
-        assertThat(secondAttempt.body()).containsEntry("reason", "ACTIVITY_NOT_AVAILABLE");
+        assertThat(secondFragment.status()).isEqualTo(201);
+    }
+
+    @Test
+    void anAdditionalFragmentBeyondTheDailyQuotaIsStillAccepted() {
+        // FR-004: over-allocation on a single day is never rejected.
+        String activityId = createActivity("Write report", 60);
+        post("/api/days/" + TODAY + "/blocks",
+                Map.of("type", "PLANNED_ACTIVITY", "startTime", "09:00", "endTime", "10:00", "activityId", activityId));
+
+        ApiResponse overQuota = post("/api/days/" + TODAY + "/blocks",
+                Map.of("type", "PLANNED_ACTIVITY", "startTime", "20:00", "endTime", "21:00", "activityId", activityId));
+
+        assertThat(overQuota.status()).isEqualTo(201);
     }
 
     @Test
@@ -131,8 +150,8 @@ class PlanActivityControllerIT {
     }
 
     @Test
-    void deletingAPlannedActivityBlockReturnsTheActivityToTheBacklog() {
-        String activityId = createUnplannedActivity("Grocery run");
+    void deletingAPlannedActivityBlockReturnsTheActivityToUnplannedForThatDay() {
+        String activityId = createActivity("Grocery run");
         ApiResponse created = post("/api/days/" + TODAY + "/blocks",
                 Map.of("type", "PLANNED_ACTIVITY", "startTime", "14:00", "endTime", "15:00", "activityId", activityId));
         String blockId = (String) created.body().get("id");
@@ -140,16 +159,13 @@ class PlanActivityControllerIT {
         ApiResponse deleted = delete("/api/blocks/" + blockId);
         assertThat(deleted.status()).isEqualTo(204);
 
-        // No single-activity GET endpoint exists (contracts/api.md), so check via the list
-        // endpoint's raw JSON instead of the Map-typed helper (the response is an array).
-        String rawList = restClient.get().uri("/api/activities?status=unplanned")
-                .retrieve().body(String.class);
-        assertThat(rawList).contains(activityId);
+        String rawList = restClient.get().uri("/api/activities?day=" + TODAY).retrieve().body(String.class);
+        assertThat(rawList).contains(activityId).contains("\"dayStatus\":\"UNPLANNED\"");
     }
 
     @Test
     void movesAPlannedActivityBlockToANewDayAndSlot() {
-        String activityId = createUnplannedActivity("Grocery run");
+        String activityId = createActivity("Grocery run");
         ApiResponse created = post("/api/days/" + TODAY + "/blocks",
                 Map.of("type", "PLANNED_ACTIVITY", "startTime", "14:00", "endTime", "15:00", "activityId", activityId));
         String blockId = (String) created.body().get("id");
@@ -180,20 +196,20 @@ class PlanActivityControllerIT {
     }
 
     @Test
-    void deletingAPlannedActivityWithoutConfirmationIsRejectedWith409() {
-        String activityId = createUnplannedActivity("Grocery run");
+    void deletingAnActivityWithAPlannedFragmentWithoutConfirmationIsRejectedWith409() {
+        String activityId = createActivity("Grocery run");
         post("/api/days/" + TODAY + "/blocks",
                 Map.of("type", "PLANNED_ACTIVITY", "startTime", "14:00", "endTime", "15:00", "activityId", activityId));
 
         ApiResponse response = delete("/api/activities/" + activityId);
 
         assertThat(response.status()).isEqualTo(409);
-        assertThat(response.body()).containsEntry("reason", "ACTIVITY_CURRENTLY_PLANNED");
+        assertThat(response.body()).containsEntry("reason", "ACTIVITY_HAS_PLANNED_FRAGMENTS");
     }
 
     @Test
     void confirmedDeleteOfAPlannedActivityAlsoRemovesItsScheduledBlock() {
-        String activityId = createUnplannedActivity("Grocery run");
+        String activityId = createActivity("Grocery run");
         ApiResponse created = post("/api/days/" + TODAY + "/blocks",
                 Map.of("type", "PLANNED_ACTIVITY", "startTime", "14:00", "endTime", "15:00", "activityId", activityId));
         String blockId = (String) created.body().get("id");
@@ -209,5 +225,42 @@ class PlanActivityControllerIT {
         Integer blockCount = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM time_block WHERE id = ?::uuid", Integer.class, blockId);
         assertThat(blockCount).isZero();
+    }
+
+    // --- US2: same-activity, same-day merge --------------------------------
+
+    @Test
+    void creatingAFragmentAdjacentToAnExistingSameActivityFragmentMergesThem() {
+        String activityId = createActivity("Course a pied", 45);
+        post("/api/days/" + TODAY + "/blocks",
+                Map.of("type", "PLANNED_ACTIVITY", "startTime", "07:00", "endTime", "07:20", "activityId", activityId));
+        post("/api/days/" + TODAY + "/blocks",
+                Map.of("type", "PLANNED_ACTIVITY", "startTime", "18:00", "endTime", "18:25", "activityId", activityId));
+
+        ApiResponse merged = post("/api/days/" + TODAY + "/blocks",
+                Map.of("type", "PLANNED_ACTIVITY", "startTime", "07:20", "endTime", "07:35", "activityId", activityId));
+
+        assertThat(merged.status()).isEqualTo(201);
+        assertThat(merged.body()).containsEntry("startTime", "07:00").containsEntry("endTime", "07:35");
+
+        ApiResponse day = get("/api/days/" + TODAY);
+        List<?> blocks = (List<?>) day.body().get("blocks");
+        assertThat(blocks).hasSize(2);
+    }
+
+    @Test
+    void midnightSpanningPlannedActivityIsRejectedWith400() {
+        String activityId = createActivity("Sleep-ish activity");
+
+        ApiResponse response = post("/api/days/" + TODAY + "/blocks",
+                Map.of("type", "PLANNED_ACTIVITY", "startTime", "23:00", "endTime", "07:00", "activityId", activityId));
+
+        assertThat(response.status()).isEqualTo(400);
+        assertThat(response.body()).containsEntry("reason", "PLANNED_ACTIVITY_SPANS_MIDNIGHT");
+
+        // The same times for a ROUTINE block are still accepted (FR-021 is PLANNED_ACTIVITY-only).
+        ApiResponse routine = post("/api/days/" + TODAY + "/blocks",
+                Map.of("type", "ROUTINE", "startTime", "23:00", "endTime", "07:00", "name", "Sleep"));
+        assertThat(routine.status()).isEqualTo(201);
     }
 }

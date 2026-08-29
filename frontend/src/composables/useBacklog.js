@@ -6,11 +6,11 @@ export function useBacklog() {
   const loading = ref(false)
   const error = ref(null)
 
-  async function load(status) {
+  async function load(day) {
     loading.value = true
     error.value = null
     try {
-      const query = status ? `?status=${status}` : ''
+      const query = day ? `?day=${day}` : ''
       activities.value = await apiClient.get(`/activities${query}`)
     } catch (err) {
       error.value = err

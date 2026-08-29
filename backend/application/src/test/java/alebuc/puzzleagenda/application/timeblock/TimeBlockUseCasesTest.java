@@ -217,6 +217,58 @@ class TimeBlockUseCasesTest {
                 .isInstanceOf(TimeBlockNotFoundException.class);
     }
 
+    @Test
+    void editingAFragmentBetweenTwoOthersMergesAllThreeInOneOperation() {
+        // FR-006: transitive/chain merge in a single edit, not just the two directly touched.
+        UUID activityId = UUID.randomUUID();
+        UUID middleId = UUID.randomUUID();
+        TimeBlock left = TimeBlock.create(
+                UUID.randomUUID(), BlockType.PLANNED_ACTIVITY,
+                new TimeRange(LocalDateTime.of(2026, 8, 16, 7, 0), LocalDateTime.of(2026, 8, 16, 7, 20)),
+                null, activityId);
+        TimeBlock right = TimeBlock.create(
+                UUID.randomUUID(), BlockType.PLANNED_ACTIVITY,
+                new TimeRange(LocalDateTime.of(2026, 8, 16, 7, 40), LocalDateTime.of(2026, 8, 16, 8, 0)),
+                null, activityId);
+        TimeBlock middle = TimeBlock.create(
+                middleId, BlockType.PLANNED_ACTIVITY,
+                new TimeRange(LocalDateTime.of(2026, 8, 16, 7, 25), LocalDateTime.of(2026, 8, 16, 7, 35)),
+                null, activityId);
+        when(timeBlockRepository.findById(middleId)).thenReturn(Optional.of(middle));
+        when(timeBlockRepository.findIntersecting(any())).thenReturn(List.of(middle));
+        when(timeBlockRepository.findByActivityIdAndDay(activityId, LocalDate.of(2026, 8, 16)))
+                .thenReturn(List.of(left, right));
+
+        TimeBlock updated = editTimeBlock.execute(middleId, LocalTime.of(7, 20), LocalTime.of(7, 40), null);
+
+        assertThat(updated.range()).isEqualTo(new TimeRange(
+                LocalDateTime.of(2026, 8, 16, 7, 0), LocalDateTime.of(2026, 8, 16, 8, 0)));
+        verify(timeBlockRepository).deleteById(left.id());
+        verify(timeBlockRepository).deleteById(right.id());
+        verify(timeBlockRepository).save(updated);
+    }
+
+    @Test
+    void editOverlapWithADifferentActivitysFragmentIsStillRejected() {
+        // FR-008: merge never bypasses conflict rules with a different activity's blocks.
+        UUID activityId = UUID.randomUUID();
+        UUID otherActivityId = UUID.randomUUID();
+        UUID id = UUID.randomUUID();
+        TimeBlock existing = TimeBlock.create(
+                id, BlockType.PLANNED_ACTIVITY,
+                new TimeRange(LocalDateTime.of(2026, 8, 16, 9, 0), LocalDateTime.of(2026, 8, 16, 9, 30)),
+                null, activityId);
+        TimeBlock otherActivityFragment = TimeBlock.create(
+                UUID.randomUUID(), BlockType.PLANNED_ACTIVITY,
+                new TimeRange(LocalDateTime.of(2026, 8, 16, 10, 0), LocalDateTime.of(2026, 8, 16, 10, 30)),
+                null, otherActivityId);
+        when(timeBlockRepository.findById(id)).thenReturn(Optional.of(existing));
+        when(timeBlockRepository.findIntersecting(any())).thenReturn(List.of(existing, otherActivityFragment));
+
+        assertThatThrownBy(() -> editTimeBlock.execute(id, LocalTime.of(9, 0), LocalTime.of(10, 15), null))
+                .isInstanceOf(TimeBlockOverlapException.class);
+    }
+
     // --- DeleteTimeBlock -------------------------------------------------
 
     @Test
@@ -228,7 +280,7 @@ class TimeBlockUseCasesTest {
                 "Sleep", null);
         when(timeBlockRepository.findById(id)).thenReturn(Optional.of(existing));
 
-        deleteTimeBlock.execute(id);
+        deleteTimeBlock.execute(id, DeleteTimeBlock.Scope.SELF);
 
         verify(timeBlockRepository).deleteById(id);
     }
@@ -238,8 +290,42 @@ class TimeBlockUseCasesTest {
         UUID id = UUID.randomUUID();
         when(timeBlockRepository.findById(id)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> deleteTimeBlock.execute(id))
+        assertThatThrownBy(() -> deleteTimeBlock.execute(id, DeleteTimeBlock.Scope.SELF))
                 .isInstanceOf(TimeBlockNotFoundException.class);
         verify(timeBlockRepository, never()).deleteById(any());
+    }
+
+    @Test
+    void deleteWithActivityDayScopeRemovesEveryFragmentThatDay() {
+        UUID activityId = UUID.randomUUID();
+        UUID blockId = UUID.randomUUID();
+        LocalDate day = LocalDate.of(2026, 8, 16);
+        TimeBlock target = TimeBlock.create(
+                blockId, BlockType.PLANNED_ACTIVITY,
+                new TimeRange(day.atTime(7, 0), day.atTime(7, 20)), null, activityId);
+        TimeBlock other = TimeBlock.create(
+                UUID.randomUUID(), BlockType.PLANNED_ACTIVITY,
+                new TimeRange(day.atTime(18, 0), day.atTime(18, 25)), null, activityId);
+        when(timeBlockRepository.findById(blockId)).thenReturn(Optional.of(target));
+        when(timeBlockRepository.findByActivityIdAndDay(activityId, day)).thenReturn(List.of(target, other));
+
+        deleteTimeBlock.execute(blockId, DeleteTimeBlock.Scope.ACTIVITY_DAY);
+
+        verify(timeBlockRepository).deleteById(target.id());
+        verify(timeBlockRepository).deleteById(other.id());
+    }
+
+    @Test
+    void deleteWithActivityDayScopeOnANonActivityBlockJustDeletesItself() {
+        UUID id = UUID.randomUUID();
+        TimeBlock existing = TimeBlock.create(
+                id, BlockType.CONSTRAINED,
+                new TimeRange(LocalDateTime.of(2026, 8, 16, 9, 0), LocalDateTime.of(2026, 8, 16, 10, 0)),
+                null, null);
+        when(timeBlockRepository.findById(id)).thenReturn(Optional.of(existing));
+
+        deleteTimeBlock.execute(id, DeleteTimeBlock.Scope.ACTIVITY_DAY);
+
+        verify(timeBlockRepository).deleteById(id);
     }
 }

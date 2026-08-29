@@ -12,8 +12,9 @@ const form = ref(emptyForm())
 const formError = ref(null)
 const editingId = ref(null)
 
-// Confirm-delete flow for a currently-planned activity (FR-005): deleting it
-// requires an explicit second step, since it also removes its scheduled block.
+// Confirm-delete flow for an activity that has one or more planned fragments
+// (FR-016): deleting it requires an explicit second step, since it also
+// cascades to every one of its fragments, across every day.
 const pendingDelete = ref(null)
 
 async function submitForm() {
@@ -55,7 +56,7 @@ function cancelEdit() {
 }
 
 async function handleDelete(activity) {
-  if (activity.status === 'PLANNED') {
+  if (activity.totalFragmentCount > 0) {
     pendingDelete.value = activity
     return
   }
@@ -87,8 +88,9 @@ function cancelDelete() {
 
     <div v-if="pendingDelete" class="backlog-view__confirm">
       <p>
-        "{{ pendingDelete.name }}" is currently planned. Deleting it will also remove its
-        scheduled time block. Delete anyway?
+        "{{ pendingDelete.name }}" has {{ pendingDelete.totalFragmentCount }} planned fragment(s)
+        across {{ pendingDelete.plannedDayCount }} day(s). Deleting it will remove all of them.
+        Delete anyway?
       </p>
       <button type="button" @click="confirmDelete">Delete anyway</button>
       <button type="button" @click="cancelDelete">Cancel</button>

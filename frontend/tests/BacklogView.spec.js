@@ -97,4 +97,42 @@ describe('BacklogView', () => {
 
     expect(wrapper.find('.backlog-view__confirm').exists()).toBe(false)
   })
+
+  it('shows a mapped error message and reloads the list when a delete fails', async () => {
+    const fetchMock = vi.fn((url, options = {}) => {
+      const method = options.method ?? 'GET'
+      if (method === 'DELETE') {
+        return Promise.resolve({
+          status: 409,
+          ok: false,
+          json: () => Promise.resolve({ reason: 'ACTIVITY_HAS_PLANNED_FRAGMENTS', message: 'Activity has 5 planned fragments...' }),
+        })
+      }
+      return Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve(activities) })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(BacklogView)
+    await flushPromises()
+
+    const deleteButtons = wrapper.findAll('.activity-card__actions button').filter((b) => b.text() === 'Delete')
+    await deleteButtons[0].trigger('click') // the fragment-free activity
+    await flushPromises()
+
+    expect(wrapper.find('.backlog-view__error').text()).toBe(
+      'This activity still has planned fragments and could not be deleted.',
+    )
+    const getCallsAfterFailure = fetchMock.mock.calls.filter(([, opts]) => (opts?.method ?? 'GET') === 'GET')
+    expect(getCallsAfterFailure.length).toBeGreaterThan(1) // initial load + reload after failure
+  })
+
+  it('shows an empty state when the backlog has no activities', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve({ status: 200, ok: true, json: () => Promise.resolve([]) })),
+    )
+    const wrapper = mount(BacklogView)
+    await flushPromises()
+
+    expect(wrapper.find('.backlog-view__empty').text()).toBe('No activities yet. Create your first one below.')
+  })
 })

@@ -145,7 +145,7 @@ The new interaction model moves block management from per-row Edit/Delete button
 - [X] T027 [P] Delete `frontend/src/components/DayTimeline.vue` and `frontend/src/components/TimeBlockCard.vue` (fully superseded since Phase 3; unreferenced from `DayView.vue` since T008)
 - [X] T028 [P] Delete `frontend/tests/DayTimeline.spec.js` (superseded by `time-grid-utils.spec.js` and `DayGrid.spec.js`)
 - [X] T029 Run `npm test` and `npm run build` from `frontend/` and fix any remaining failures
-- [ ] T030 Walk through every manual scenario in `specs/003-calendar-day-view/quickstart.md` against a running dev server (`npm run dev` + the existing backend) and confirm each expected outcome, including the regression check that `/backlog` and `/routine-template` are unaffected
+- [X] T030 Walk through every manual scenario in `specs/003-calendar-day-view/quickstart.md` against a running dev server (`npm run dev` + the existing backend) and confirm each expected outcome, including the regression check that `/backlog` and `/routine-template` are unaffected
 
 ---
 

@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -77,8 +78,16 @@ public class TimeBlockController {
 
     @DeleteMapping("/blocks/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteBlock(@PathVariable UUID id) {
-        deleteTimeBlock.execute(id);
+    public void deleteBlock(@PathVariable UUID id, @RequestParam(defaultValue = "self") String scope) {
+        deleteTimeBlock.execute(id, parseScope(scope));
+    }
+
+    private static DeleteTimeBlock.Scope parseScope(String scope) {
+        return switch (scope) {
+            case "self" -> DeleteTimeBlock.Scope.SELF;
+            case "activityDay" -> DeleteTimeBlock.Scope.ACTIVITY_DAY;
+            default -> throw new IllegalArgumentException("scope must be 'self' or 'activityDay', was: " + scope);
+        };
     }
 
     public record CreateTimeBlockRequest(BlockType type, String startTime, String endTime, String name, UUID activityId) {

@@ -10,31 +10,32 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class ActivityTest {
 
     @Test
-    void createStartsUnplanned() {
+    void createBuildsAnActivityWithNoStoredPlanningState() {
         Activity activity = Activity.create(UUID.randomUUID(), "Grocery run", 30, Priority.MEDIUM, "errands");
 
-        assertThat(activity.status()).isEqualTo(ActivityStatus.UNPLANNED);
-        assertThat(activity.isPlanned()).isFalse();
+        assertThat(activity.name()).isEqualTo("Grocery run");
+        assertThat(activity.estimatedDurationMinutes()).isEqualTo(30);
+        assertThat(activity.priority()).isEqualTo(Priority.MEDIUM);
+        assertThat(activity.category()).isEqualTo("errands");
     }
 
     @Test
-    void reconstituteCanRehydrateAPlannedActivity() {
-        Activity activity = Activity.reconstitute(
-                UUID.randomUUID(), "Grocery run", 30, Priority.MEDIUM, "errands", ActivityStatus.PLANNED);
-
-        assertThat(activity.status()).isEqualTo(ActivityStatus.PLANNED);
-        assertThat(activity.isPlanned()).isTrue();
-    }
-
-    @Test
-    void withDetailsPreservesIdAndStatus() {
+    void reconstituteRehydratesFromPersistence() {
         UUID id = UUID.randomUUID();
-        Activity planned = Activity.reconstitute(id, "Old", 15, Priority.LOW, null, ActivityStatus.PLANNED);
+        Activity activity = Activity.reconstitute(id, "Grocery run", 30, Priority.MEDIUM, "errands");
 
-        Activity edited = planned.withDetails("New", 45, Priority.HIGH, "leisure");
+        assertThat(activity.id()).isEqualTo(id);
+        assertThat(activity.name()).isEqualTo("Grocery run");
+    }
+
+    @Test
+    void withDetailsPreservesId() {
+        UUID id = UUID.randomUUID();
+        Activity original = Activity.reconstitute(id, "Old", 15, Priority.LOW, null);
+
+        Activity edited = original.withDetails("New", 45, Priority.HIGH, "leisure");
 
         assertThat(edited.id()).isEqualTo(id);
-        assertThat(edited.status()).isEqualTo(ActivityStatus.PLANNED);
         assertThat(edited.name()).isEqualTo("New");
         assertThat(edited.estimatedDurationMinutes()).isEqualTo(45);
         assertThat(edited.priority()).isEqualTo(Priority.HIGH);

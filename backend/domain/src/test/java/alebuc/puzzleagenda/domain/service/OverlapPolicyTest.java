@@ -91,4 +91,30 @@ class OverlapPolicyTest {
 
         assertThat(policy.overlaps(dayOne, dayTwo)).isFalse();
     }
+
+    @Test
+    void touchesOrOverlapsIsFalseForDisjointRanges() {
+        TimeRange first = new TimeRange(dt(16, 7, 0), dt(16, 7, 20));
+        TimeRange second = new TimeRange(dt(16, 18, 0), dt(16, 18, 25));
+
+        assertThat(policy.touchesOrOverlaps(first, second)).isFalse();
+    }
+
+    @Test
+    void touchesOrOverlapsIsTrueForAdjacentRanges() {
+        // Merge trigger (FR-005): adjacent fragments, unlike ordinary overlap rejection, DO merge.
+        TimeRange first = new TimeRange(dt(16, 7, 0), dt(16, 7, 20));
+        TimeRange second = new TimeRange(dt(16, 7, 20), dt(16, 7, 35));
+
+        assertThat(policy.overlaps(first, second)).isFalse();
+        assertThat(policy.touchesOrOverlaps(first, second)).isTrue();
+    }
+
+    @Test
+    void touchesOrOverlapsIsTrueForOverlappingRanges() {
+        TimeRange first = new TimeRange(dt(16, 9, 0), dt(16, 10, 0));
+        TimeRange second = new TimeRange(dt(16, 9, 30), dt(16, 10, 30));
+
+        assertThat(policy.touchesOrOverlaps(first, second)).isTrue();
+    }
 }

@@ -1,11 +1,12 @@
 package alebuc.puzzleagenda.infrastructure.rest;
 
-import alebuc.puzzleagenda.domain.exception.ActivityCurrentlyPlannedException;
+import alebuc.puzzleagenda.domain.exception.ActivityHasPlannedFragmentsException;
 import alebuc.puzzleagenda.domain.exception.ActivityNotAvailableException;
 import alebuc.puzzleagenda.domain.exception.ActivityNotFoundException;
 import alebuc.puzzleagenda.domain.exception.DayBeyondForwardHorizonException;
 import alebuc.puzzleagenda.domain.exception.DayNotReachableException;
 import alebuc.puzzleagenda.domain.exception.InvalidTimeRangeException;
+import alebuc.puzzleagenda.domain.exception.PlannedActivitySpansMidnightException;
 import alebuc.puzzleagenda.domain.exception.RoutineTemplateEntryNotFoundException;
 import alebuc.puzzleagenda.domain.exception.TemplateEntryOverlapException;
 import alebuc.puzzleagenda.domain.exception.TimeBlockNotFoundException;
@@ -59,10 +60,16 @@ public class ApiExceptionHandler {
                 .body(new ErrorBody("ACTIVITY_NOT_FOUND", ex.getMessage()));
     }
 
-    @ExceptionHandler(ActivityCurrentlyPlannedException.class)
-    public ResponseEntity<ErrorBody> handleActivityCurrentlyPlanned(ActivityCurrentlyPlannedException ex) {
+    @ExceptionHandler(ActivityHasPlannedFragmentsException.class)
+    public ResponseEntity<ErrorBody> handleActivityHasPlannedFragments(ActivityHasPlannedFragmentsException ex) {
         return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(new ErrorBody("ACTIVITY_CURRENTLY_PLANNED", ex.getMessage()));
+                .body(new ErrorBody("ACTIVITY_HAS_PLANNED_FRAGMENTS", ex.getMessage()));
+    }
+
+    @ExceptionHandler(PlannedActivitySpansMidnightException.class)
+    public ResponseEntity<ErrorBody> handlePlannedActivitySpansMidnight(PlannedActivitySpansMidnightException ex) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(new ErrorBody("PLANNED_ACTIVITY_SPANS_MIDNIGHT", ex.getMessage()));
     }
 
     @ExceptionHandler(ActivityNotAvailableException.class)

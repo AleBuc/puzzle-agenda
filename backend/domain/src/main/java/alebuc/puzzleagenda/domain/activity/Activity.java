@@ -4,10 +4,12 @@ import java.util.Objects;
 import java.util.UUID;
 
 /**
- * A backlog item (spec FR-001..FR-005; data-model.md Activity). {@code status}
- * is a read-only projection: it is never set by domain logic in this class,
- * only hydrated by the repository (via a join against {@code time_block}) or
- * defaulted to {@code UNPLANNED} on {@link #create}.
+ * A backlog item (spec FR-001..FR-004; data-model.md Activity). Planning
+ * status is no longer a property of the Activity itself: since a single
+ * activity may now have independent fragments on several days (feature 002),
+ * status is derived per day ({@link DayPlanningStatus}) or aggregated across
+ * days ({@code ActivityPlanningSummary}, application layer), never stored
+ * here.
  */
 public final class Activity {
 
@@ -16,31 +18,27 @@ public final class Activity {
     private final int estimatedDurationMinutes;
     private final Priority priority;
     private final String category;
-    private final ActivityStatus status;
 
-    private Activity(UUID id, String name, int estimatedDurationMinutes, Priority priority, String category, ActivityStatus status) {
+    private Activity(UUID id, String name, int estimatedDurationMinutes, Priority priority, String category) {
         this.id = id;
         this.name = name;
         this.estimatedDurationMinutes = estimatedDurationMinutes;
         this.priority = priority;
         this.category = category;
-        this.status = status;
     }
 
-    /** A newly created activity always starts UNPLANNED (FR-002). */
     public static Activity create(UUID id, String name, int estimatedDurationMinutes, Priority priority, String category) {
         Objects.requireNonNull(id, "id must not be null");
         validate(name, estimatedDurationMinutes, priority);
-        return new Activity(id, name.trim(), estimatedDurationMinutes, priority, category, ActivityStatus.UNPLANNED);
+        return new Activity(id, name.trim(), estimatedDurationMinutes, priority, category);
     }
 
-    /** Rehydrates from persistence, where {@code status} is already known (repository join). */
+    /** Rehydrates from persistence. */
     public static Activity reconstitute(
-            UUID id, String name, int estimatedDurationMinutes, Priority priority, String category, ActivityStatus status) {
+            UUID id, String name, int estimatedDurationMinutes, Priority priority, String category) {
         Objects.requireNonNull(id, "id must not be null");
-        Objects.requireNonNull(status, "status must not be null");
         validate(name, estimatedDurationMinutes, priority);
-        return new Activity(id, name, estimatedDurationMinutes, priority, category, status);
+        return new Activity(id, name, estimatedDurationMinutes, priority, category);
     }
 
     private static void validate(String name, int estimatedDurationMinutes, Priority priority) {
@@ -53,10 +51,10 @@ public final class Activity {
         Objects.requireNonNull(priority, "priority must not be null");
     }
 
-    /** Same id/status, new name/duration/priority/category (FR-003). */
+    /** Same id, new name/duration/priority/category (FR-003). */
     public Activity withDetails(String newName, int newEstimatedDurationMinutes, Priority newPriority, String newCategory) {
         validate(newName, newEstimatedDurationMinutes, newPriority);
-        return new Activity(id, newName.trim(), newEstimatedDurationMinutes, newPriority, newCategory, status);
+        return new Activity(id, newName.trim(), newEstimatedDurationMinutes, newPriority, newCategory);
     }
 
     public UUID id() {
@@ -77,14 +75,6 @@ public final class Activity {
 
     public String category() {
         return category;
-    }
-
-    public ActivityStatus status() {
-        return status;
-    }
-
-    public boolean isPlanned() {
-        return status == ActivityStatus.PLANNED;
     }
 
     @Override

@@ -18,11 +18,19 @@ public interface TimeBlockRepository {
     Optional<TimeBlock> findById(UUID id);
 
     /**
-     * The {@code PLANNED_ACTIVITY} block currently referencing {@code activityId}, if any — at
-     * most one can exist at a time (data-model.md Activity). Added in tasks.md T053/US3, needed
-     * by {@code DeleteActivity} to cascade-delete the scheduled block.
+     * Every {@code PLANNED_ACTIVITY} block referencing {@code activityId}, across every day —
+     * an activity may now have several concurrent fragments (data-model.md Activity/TimeBlock,
+     * feature 002). Used by {@code DeleteActivity} to cascade-delete every fragment, and to
+     * compute cross-day aggregate planning info.
      */
-    Optional<TimeBlock> findByActivityId(UUID activityId);
+    List<TimeBlock> findByActivityId(UUID activityId);
+
+    /**
+     * {@code PLANNED_ACTIVITY} blocks referencing {@code activityId} whose start day equals
+     * {@code day} — the candidate list for same-activity/same-day merge (FR-005-FR-007) and for
+     * that day's remaining-time/status computation (FR-003, FR-009).
+     */
+    List<TimeBlock> findByActivityIdAndDay(UUID activityId, LocalDate day);
 
     /** Blocks whose start day equals {@code day}, in chronological order (FR-020). */
     List<TimeBlock> findByDay(LocalDate day);

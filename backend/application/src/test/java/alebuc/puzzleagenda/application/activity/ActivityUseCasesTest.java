@@ -1,9 +1,9 @@
 package alebuc.puzzleagenda.application.activity;
 
 import alebuc.puzzleagenda.domain.activity.Activity;
-import alebuc.puzzleagenda.domain.activity.ActivityStatus;
+import alebuc.puzzleagenda.domain.activity.DayPlanningStatus;
 import alebuc.puzzleagenda.domain.activity.Priority;
-import alebuc.puzzleagenda.domain.exception.ActivityCurrentlyPlannedException;
+import alebuc.puzzleagenda.domain.exception.ActivityHasPlannedFragmentsException;
 import alebuc.puzzleagenda.domain.exception.ActivityNotFoundException;
 import alebuc.puzzleagenda.domain.port.ActivityRepository;
 import alebuc.puzzleagenda.domain.port.TimeBlockRepository;
@@ -16,6 +16,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -40,14 +41,13 @@ class ActivityUseCasesTest {
     // --- CreateActivity ----------------------------------------------------
 
     @Test
-    void createsAnUnplannedActivity() {
+    void createsAnActivity() {
         CreateActivity createActivity = new CreateActivity(activityRepository);
 
         Activity created = createActivity.execute(
                 new CreateActivity.Command("Grocery run", 30, Priority.MEDIUM, "errands"));
 
         assertThat(created.name()).isEqualTo("Grocery run");
-        assertThat(created.status()).isEqualTo(ActivityStatus.UNPLANNED);
         verify(activityRepository).save(created);
     }
 
@@ -71,9 +71,9 @@ class ActivityUseCasesTest {
     // --- EditActivity --------------------------------------------------------
 
     @Test
-    void editsNameDurationPriorityAndCategoryButNotStatus() {
+    void editsNameDurationPriorityAndCategory() {
         UUID id = UUID.randomUUID();
-        Activity existing = Activity.reconstitute(id, "Old", 15, Priority.LOW, null, ActivityStatus.PLANNED);
+        Activity existing = Activity.reconstitute(id, "Old", 15, Priority.LOW, null);
         when(activityRepository.findById(id)).thenReturn(Optional.of(existing));
         EditActivity editActivity = new EditActivity(activityRepository);
 
@@ -83,7 +83,6 @@ class ActivityUseCasesTest {
         assertThat(updated.estimatedDurationMinutes()).isEqualTo(45);
         assertThat(updated.priority()).isEqualTo(Priority.HIGH);
         assertThat(updated.category()).isEqualTo("leisure");
-        assertThat(updated.status()).isEqualTo(ActivityStatus.PLANNED);
         verify(activityRepository).save(updated);
     }
 
@@ -100,10 +99,11 @@ class ActivityUseCasesTest {
     // --- DeleteActivity ------------------------------------------------------
 
     @Test
-    void deletesAnUnplannedActivityDirectly() {
+    void deletesAnActivityWithNoFragmentsDirectly() {
         UUID id = UUID.randomUUID();
-        Activity existing = Activity.reconstitute(id, "Errand", 20, Priority.LOW, null, ActivityStatus.UNPLANNED);
+        Activity existing = Activity.reconstitute(id, "Errand", 20, Priority.LOW, null);
         when(activityRepository.findById(id)).thenReturn(Optional.of(existing));
+        when(timeBlockRepository.findByActivityId(id)).thenReturn(List.of());
         DeleteActivity deleteActivity = new DeleteActivity(activityRepository, timeBlockRepository);
 
         deleteActivity.execute(id, false);
@@ -113,36 +113,34 @@ class ActivityUseCasesTest {
     }
 
     @Test
-    void rejectsDeletingAPlannedActivityWithoutConfirmation() {
+    void rejectsDeletingAnActivityWithFragmentsWithoutConfirmation() {
         UUID id = UUID.randomUUID();
-        Activity existing = Activity.reconstitute(id, "Errand", 20, Priority.LOW, null, ActivityStatus.PLANNED);
+        Activity existing = Activity.reconstitute(id, "Errand", 20, Priority.LOW, null);
         when(activityRepository.findById(id)).thenReturn(Optional.of(existing));
+        when(timeBlockRepository.findByActivityId(id)).thenReturn(List.of(fragment(id, "2026-08-16")));
         DeleteActivity deleteActivity = new DeleteActivity(activityRepository, timeBlockRepository);
 
         assertThatThrownBy(() -> deleteActivity.execute(id, false))
-                .isInstanceOf(ActivityCurrentlyPlannedException.class);
+                .isInstanceOf(ActivityHasPlannedFragmentsException.class);
         verify(activityRepository, never()).deleteById(any());
     }
 
     @Test
-    void confirmedDeleteOfAPlannedActivityAlsoDeletesItsScheduledBlock() {
+    void confirmedDeleteOfAMultiFragmentActivityCascadesToEveryFragment() {
         UUID activityId = UUID.randomUUID();
-        Activity existing = Activity.reconstitute(activityId, "Errand", 20, Priority.LOW, null, ActivityStatus.PLANNED);
+        Activity existing = Activity.reconstitute(activityId, "Errand", 20, Priority.LOW, null);
         when(activityRepository.findById(activityId)).thenReturn(Optional.of(existing));
 
-        UUID blockId = UUID.randomUUID();
-        TimeBlock block = TimeBlock.create(
-                blockId, BlockType.PLANNED_ACTIVITY,
-                new TimeRange(LocalDateTime.of(2026, 8, 16, 9, 0), LocalDateTime.of(2026, 8, 16, 9, 30)),
-                null, activityId);
-        when(timeBlockRepository.findByActivityId(activityId)).thenReturn(Optional.of(block));
+        TimeBlock dayOneFragment = fragment(activityId, "2026-08-16");
+        TimeBlock dayTwoFragment = fragment(activityId, "2026-08-18");
+        when(timeBlockRepository.findByActivityId(activityId)).thenReturn(List.of(dayOneFragment, dayTwoFragment));
 
         DeleteActivity deleteActivity = new DeleteActivity(activityRepository, timeBlockRepository);
         deleteActivity.execute(activityId, true);
 
-        ArgumentCaptor<UUID> deletedBlockId = ArgumentCaptor.forClass(UUID.class);
-        verify(timeBlockRepository).deleteById(deletedBlockId.capture());
-        assertThat(deletedBlockId.getValue()).isEqualTo(blockId);
+        ArgumentCaptor<UUID> deletedBlockIds = ArgumentCaptor.forClass(UUID.class);
+        verify(timeBlockRepository, org.mockito.Mockito.times(2)).deleteById(deletedBlockIds.capture());
+        assertThat(deletedBlockIds.getAllValues()).containsExactlyInAnyOrder(dayOneFragment.id(), dayTwoFragment.id());
         verify(activityRepository).deleteById(activityId);
     }
 
@@ -159,22 +157,39 @@ class ActivityUseCasesTest {
     // --- ListActivities --------------------------------------------------------
 
     @Test
-    void listsAllActivitiesWhenNoFilterIsGiven() {
-        Activity unplanned = Activity.reconstitute(UUID.randomUUID(), "A", 10, Priority.LOW, null, ActivityStatus.UNPLANNED);
-        Activity planned = Activity.reconstitute(UUID.randomUUID(), "B", 10, Priority.LOW, null, ActivityStatus.PLANNED);
-        when(activityRepository.findAll()).thenReturn(List.of(unplanned, planned));
-        ListActivities listActivities = new ListActivities(activityRepository);
+    void listsAllActivitiesInTheAggregateView() {
+        Activity first = Activity.reconstitute(UUID.randomUUID(), "A", 10, Priority.LOW, null);
+        Activity second = Activity.reconstitute(UUID.randomUUID(), "B", 10, Priority.LOW, null);
+        when(activityRepository.findAll()).thenReturn(List.of(first, second));
+        when(timeBlockRepository.findByActivityId(first.id())).thenReturn(List.of());
+        when(timeBlockRepository.findByActivityId(second.id())).thenReturn(List.of(fragment(second.id(), "2026-08-16")));
+        ListActivities listActivities = new ListActivities(activityRepository, timeBlockRepository);
 
-        assertThat(listActivities.execute(null)).containsExactly(unplanned, planned);
+        List<ListActivities.ActivityView> views = listActivities.execute();
+
+        assertThat(views).extracting(v -> v.activity().id()).containsExactly(first.id(), second.id());
+        assertThat(views.get(0).totalFragmentCount()).isZero();
+        assertThat(views.get(1).totalFragmentCount()).isEqualTo(1);
+        assertThat(views.get(1).plannedDayCount()).isEqualTo(1);
     }
 
     @Test
-    void filtersActivitiesByStatus() {
-        Activity unplanned = Activity.reconstitute(UUID.randomUUID(), "A", 10, Priority.LOW, null, ActivityStatus.UNPLANNED);
-        Activity planned = Activity.reconstitute(UUID.randomUUID(), "B", 10, Priority.LOW, null, ActivityStatus.PLANNED);
-        when(activityRepository.findAll()).thenReturn(List.of(unplanned, planned));
-        ListActivities listActivities = new ListActivities(activityRepository);
+    void dayScopedViewIncludesRemainingTimeAndStatusForThatDay() {
+        Activity activity = Activity.reconstitute(UUID.randomUUID(), "A", 300, Priority.LOW, null);
+        when(activityRepository.findAll()).thenReturn(List.of(activity));
+        when(timeBlockRepository.findByActivityId(activity.id())).thenReturn(List.of(fragment(activity.id(), "2026-08-16")));
+        ListActivities listActivities = new ListActivities(activityRepository, timeBlockRepository);
 
-        assertThat(listActivities.execute(ActivityStatus.PLANNED)).containsExactly(planned);
+        List<ListActivities.ActivityView> views = listActivities.execute(LocalDate.parse("2026-08-16"));
+
+        assertThat(views.get(0).dayPlanning()).isNotNull();
+        assertThat(views.get(0).dayPlanning().status()).isEqualTo(DayPlanningStatus.PARTIALLY_PLANNED);
+        assertThat(views.get(0).dayPlanning().remainingMinutes()).isEqualTo(270);
+    }
+
+    private static TimeBlock fragment(UUID activityId, String isoDate) {
+        LocalDateTime start = LocalDate.parse(isoDate).atTime(9, 0);
+        return TimeBlock.create(
+                UUID.randomUUID(), BlockType.PLANNED_ACTIVITY, new TimeRange(start, start.plusMinutes(30)), null, activityId);
     }
 }

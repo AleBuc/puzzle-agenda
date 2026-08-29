@@ -1,7 +1,6 @@
 package alebuc.puzzleagenda.infrastructure.persistence;
 
 import alebuc.puzzleagenda.domain.activity.Activity;
-import alebuc.puzzleagenda.domain.activity.ActivityStatus;
 import alebuc.puzzleagenda.domain.activity.Priority;
 import alebuc.puzzleagenda.domain.port.ActivityRepository;
 import org.springframework.jdbc.core.RowMapper;
@@ -16,19 +15,16 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * JDBC adapter for {@code activity} (V1 migration). {@code status} is never
- * stored — it's computed per row via an {@code EXISTS} subquery against
- * {@code time_block} (data-model.md Activity: derived, not persisted).
+ * JDBC adapter for {@code activity} (V1 migration). An activity carries no
+ * planning-status column of its own — that is now derived per day or
+ * aggregated across days by the application layer from {@code time_block}
+ * rows (data-model.md Activity, feature 002).
  */
 @Repository
 public class ActivityRepositoryAdapter implements ActivityRepository {
 
     private static final String SELECT_BASE = """
-            SELECT a.id, a.name, a.estimated_duration_minutes, a.priority, a.category,
-                   CASE WHEN EXISTS (
-                       SELECT 1 FROM time_block tb
-                       WHERE tb.activity_id = a.id AND tb.type = 'PLANNED_ACTIVITY'
-                   ) THEN 'PLANNED' ELSE 'UNPLANNED' END AS status
+            SELECT a.id, a.name, a.estimated_duration_minutes, a.priority, a.category
             FROM activity a
             """;
 
@@ -85,7 +81,6 @@ public class ActivityRepositoryAdapter implements ActivityRepository {
                 rs.getString("name"),
                 rs.getInt("estimated_duration_minutes"),
                 Priority.valueOf(rs.getString("priority")),
-                rs.getString("category"),
-                ActivityStatus.valueOf(rs.getString("status")));
+                rs.getString("category"));
     }
 }

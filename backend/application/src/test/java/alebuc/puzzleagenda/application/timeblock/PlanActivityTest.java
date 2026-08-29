@@ -1,7 +1,6 @@
 package alebuc.puzzleagenda.application.timeblock;
 
 import alebuc.puzzleagenda.domain.activity.Activity;
-import alebuc.puzzleagenda.domain.activity.ActivityStatus;
 import alebuc.puzzleagenda.domain.activity.Priority;
 import alebuc.puzzleagenda.domain.exception.ActivityNotAvailableException;
 import alebuc.puzzleagenda.domain.exception.DayNotReachableException;
@@ -74,12 +73,13 @@ class PlanActivityTest {
     // --- CreateTimeBlock (PLANNED_ACTIVITY) -------------------------------
 
     @Test
-    void plansAnUnplannedActivityIntoASlot() {
+    void plansAnActivityIntoASlot() {
         UUID activityId = UUID.randomUUID();
-        Activity unplanned = Activity.reconstitute(activityId, "Errand", 30, Priority.MEDIUM, null, ActivityStatus.UNPLANNED);
-        when(activityRepository.findById(activityId)).thenReturn(Optional.of(unplanned));
+        Activity activity = Activity.reconstitute(activityId, "Errand", 30, Priority.MEDIUM, null);
+        when(activityRepository.findById(activityId)).thenReturn(Optional.of(activity));
         when(horizonStateRepository.load()).thenReturn(HorizonState.withDay1(TODAY));
         when(timeBlockRepository.findIntersecting(any())).thenReturn(List.of());
+        when(timeBlockRepository.findByActivityIdAndDay(any(), any())).thenReturn(List.of());
 
         CreateTimeBlock.Command command = new CreateTimeBlock.Command(
                 BlockType.PLANNED_ACTIVITY,
@@ -96,22 +96,56 @@ class PlanActivityTest {
     }
 
     @Test
-    void rejectsPlanningAnActivityThatIsAlreadyPlanned() {
+    void allowsPlanningASecondFragmentForAnActivityThatAlreadyHasOne() {
+        // FR-001 (feature 002): an activity may now have several concurrent fragments —
+        // no ACTIVITY_NOT_AVAILABLE rejection just because it already has one elsewhere.
         UUID activityId = UUID.randomUUID();
-        Activity planned = Activity.reconstitute(activityId, "Errand", 30, Priority.MEDIUM, null, ActivityStatus.PLANNED);
-        when(activityRepository.findById(activityId)).thenReturn(Optional.of(planned));
+        Activity activity = Activity.reconstitute(activityId, "Errand", 30, Priority.MEDIUM, null);
+        when(activityRepository.findById(activityId)).thenReturn(Optional.of(activity));
         when(horizonStateRepository.load()).thenReturn(HorizonState.withDay1(TODAY));
+        when(timeBlockRepository.findIntersecting(any())).thenReturn(List.of());
+        when(timeBlockRepository.findByActivityIdAndDay(any(), any())).thenReturn(List.of());
 
         CreateTimeBlock.Command command = new CreateTimeBlock.Command(
                 BlockType.PLANNED_ACTIVITY,
-                LocalDateTime.of(2026, 8, 16, 14, 0),
-                LocalDateTime.of(2026, 8, 16, 15, 0),
+                LocalDateTime.of(2026, 8, 18, 14, 0),
+                LocalDateTime.of(2026, 8, 18, 15, 0),
                 null,
                 activityId);
 
-        assertThatThrownBy(() -> createTimeBlock.execute(command))
-                .isInstanceOf(ActivityNotAvailableException.class);
-        verify(timeBlockRepository, never()).save(any());
+        TimeBlock created = createTimeBlock.execute(command);
+
+        assertThat(created.activityId()).contains(activityId);
+        verify(timeBlockRepository).save(created);
+    }
+
+    @Test
+    void mergesWithATouchingFragmentOfTheSameActivityOnTheSameDay() {
+        UUID activityId = UUID.randomUUID();
+        Activity activity = Activity.reconstitute(activityId, "Course a pied", 45, Priority.MEDIUM, "sport");
+        when(activityRepository.findById(activityId)).thenReturn(Optional.of(activity));
+        when(horizonStateRepository.load()).thenReturn(HorizonState.withDay1(TODAY));
+        when(timeBlockRepository.findIntersecting(any())).thenReturn(List.of());
+
+        TimeBlock morning = TimeBlock.create(
+                UUID.randomUUID(), BlockType.PLANNED_ACTIVITY,
+                new TimeRange(LocalDateTime.of(2026, 8, 16, 7, 0), LocalDateTime.of(2026, 8, 16, 7, 20)),
+                null, activityId);
+        when(timeBlockRepository.findByActivityIdAndDay(activityId, TODAY)).thenReturn(List.of(morning));
+
+        CreateTimeBlock.Command command = new CreateTimeBlock.Command(
+                BlockType.PLANNED_ACTIVITY,
+                LocalDateTime.of(2026, 8, 16, 7, 20),
+                LocalDateTime.of(2026, 8, 16, 7, 35),
+                null,
+                activityId);
+
+        TimeBlock created = createTimeBlock.execute(command);
+
+        assertThat(created.range()).isEqualTo(new TimeRange(
+                LocalDateTime.of(2026, 8, 16, 7, 0), LocalDateTime.of(2026, 8, 16, 7, 35)));
+        verify(timeBlockRepository).deleteById(morning.id());
+        verify(timeBlockRepository).save(created);
     }
 
     @Test
@@ -164,12 +198,39 @@ class PlanActivityTest {
         when(timeBlockRepository.findById(blockId)).thenReturn(Optional.of(existing));
         when(horizonStateRepository.load()).thenReturn(HorizonState.withDay1(TODAY));
         when(timeBlockRepository.findIntersecting(any())).thenReturn(List.of());
+        when(timeBlockRepository.findByActivityIdAndDay(any(), any())).thenReturn(List.of());
 
         TimeBlock moved = moveTimeBlock.execute(blockId, TODAY.plusDays(1), LocalTime.of(10, 0), LocalTime.of(11, 0));
 
         assertThat(moved.day()).isEqualTo(TODAY.plusDays(1));
         assertThat(moved.activityId()).contains(activityId);
         verify(timeBlockRepository).save(moved);
+    }
+
+    @Test
+    void movingAFragmentOnlyMergesAgainstTheDestinationDaysFragments() {
+        // FR-022 / US2: merge is evaluated only against the destination day, never the origin day.
+        UUID activityId = UUID.randomUUID();
+        UUID blockId = UUID.randomUUID();
+        TimeBlock existing = TimeBlock.create(
+                blockId, BlockType.PLANNED_ACTIVITY,
+                new TimeRange(LocalDateTime.of(2026, 8, 16, 14, 0), LocalDateTime.of(2026, 8, 16, 15, 0)),
+                null, activityId);
+        TimeBlock destinationNeighbor = TimeBlock.create(
+                UUID.randomUUID(), BlockType.PLANNED_ACTIVITY,
+                new TimeRange(LocalDateTime.of(2026, 8, 17, 11, 0), LocalDateTime.of(2026, 8, 17, 12, 0)),
+                null, activityId);
+        when(timeBlockRepository.findById(blockId)).thenReturn(Optional.of(existing));
+        when(horizonStateRepository.load()).thenReturn(HorizonState.withDay1(TODAY));
+        when(timeBlockRepository.findIntersecting(any())).thenReturn(List.of());
+        when(timeBlockRepository.findByActivityIdAndDay(activityId, TODAY.plusDays(1)))
+                .thenReturn(List.of(destinationNeighbor));
+
+        TimeBlock moved = moveTimeBlock.execute(blockId, TODAY.plusDays(1), LocalTime.of(10, 0), LocalTime.of(11, 0));
+
+        assertThat(moved.range()).isEqualTo(new TimeRange(
+                LocalDateTime.of(2026, 8, 17, 10, 0), LocalDateTime.of(2026, 8, 17, 12, 0)));
+        verify(timeBlockRepository).deleteById(destinationNeighbor.id());
     }
 
     @Test

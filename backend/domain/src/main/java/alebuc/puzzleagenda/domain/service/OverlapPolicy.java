@@ -20,6 +20,16 @@ public final class OverlapPolicy {
     }
 
     /**
+     * True when {@code a} and {@code b} overlap OR share a boundary instant
+     * (one's end equals the other's start) — the same-activity fragment
+     * merge trigger (FR-005), a relaxed version of {@link #overlaps} using
+     * {@code <=} instead of {@code <}.
+     */
+    public boolean touchesOrOverlaps(TimeRange a, TimeRange b) {
+        return !a.start().isAfter(b.end()) && !b.start().isAfter(a.end());
+    }
+
+    /**
      * @throws TimeBlockOverlapException on the first {@code existingRanges} entry that
      *                                   intersects {@code candidate}
      */

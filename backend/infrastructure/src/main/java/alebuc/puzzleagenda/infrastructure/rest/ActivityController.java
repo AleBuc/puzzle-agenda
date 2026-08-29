@@ -5,7 +5,6 @@ import alebuc.puzzleagenda.application.activity.DeleteActivity;
 import alebuc.puzzleagenda.application.activity.EditActivity;
 import alebuc.puzzleagenda.application.activity.ListActivities;
 import alebuc.puzzleagenda.domain.activity.Activity;
-import alebuc.puzzleagenda.domain.activity.ActivityStatus;
 import alebuc.puzzleagenda.domain.activity.Priority;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -19,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -40,10 +40,14 @@ public class ActivityController {
         this.deleteActivity = deleteActivity;
     }
 
+    /**
+     * With no {@code day}: the backlog/aggregate view (FR-012-FR-013). With
+     * {@code day}: additionally carries each activity's remaining time and
+     * status for exactly that day (FR-010-FR-011).
+     */
     @GetMapping
-    public List<ActivityResponse> getActivities(@RequestParam(required = false) String status) {
-        ActivityStatus filter = status == null ? null : ActivityStatus.valueOf(status.toUpperCase());
-        return listActivities.execute(filter).stream().map(ActivityResponse::from).toList();
+    public List<ActivityResponse> getActivities(@RequestParam(required = false) LocalDate day) {
+        return listActivities.execute(day).stream().map(ActivityResponse::from).toList();
     }
 
     @PostMapping
@@ -51,14 +55,14 @@ public class ActivityController {
     public ActivityResponse createActivity(@RequestBody ActivityRequest request) {
         Activity activity = createActivity.execute(
                 new CreateActivity.Command(request.name(), request.estimatedDurationMinutes(), request.priority(), request.category()));
-        return ActivityResponse.from(activity);
+        return ActivityResponse.from(listActivities.describe(activity, null));
     }
 
     @PutMapping("/{id}")
     public ActivityResponse editActivity(@PathVariable UUID id, @RequestBody ActivityRequest request) {
         Activity activity = editActivity.execute(
                 id, new EditActivity.Command(request.name(), request.estimatedDurationMinutes(), request.priority(), request.category()));
-        return ActivityResponse.from(activity);
+        return ActivityResponse.from(listActivities.describe(activity, null));
     }
 
     @DeleteMapping("/{id}")
@@ -70,15 +74,40 @@ public class ActivityController {
     public record ActivityRequest(String name, int estimatedDurationMinutes, Priority priority, String category) {
     }
 
-    public record ActivityResponse(UUID id, String name, int estimatedDurationMinutes, String priority, String category, String status) {
-        static ActivityResponse from(Activity activity) {
+    public record ActivityResponse(
+            UUID id,
+            String name,
+            int estimatedDurationMinutes,
+            String priority,
+            String category,
+            int totalFragmentCount,
+            int plannedDayCount,
+            List<DaySummaryResponse> days,
+            Integer remainingMinutesForDay,
+            String dayStatus) {
+
+        static ActivityResponse from(ListActivities.ActivityView view) {
+            Activity activity = view.activity();
+            List<DaySummaryResponse> days = view.days().stream().map(DaySummaryResponse::from).toList();
+            Integer remainingMinutesForDay = view.dayPlanning() == null ? null : view.dayPlanning().remainingMinutes();
+            String dayStatus = view.dayPlanning() == null ? null : view.dayPlanning().status().name();
             return new ActivityResponse(
                     activity.id(),
                     activity.name(),
                     activity.estimatedDurationMinutes(),
                     activity.priority().name(),
                     activity.category(),
-                    activity.status().name());
+                    view.totalFragmentCount(),
+                    view.plannedDayCount(),
+                    days,
+                    remainingMinutesForDay,
+                    dayStatus);
+        }
+    }
+
+    public record DaySummaryResponse(LocalDate day, int plannedMinutes, String status) {
+        static DaySummaryResponse from(ListActivities.ActivityView.DaySummary summary) {
+            return new DaySummaryResponse(summary.day(), summary.plannedMinutes(), summary.status().name());
         }
     }
 }

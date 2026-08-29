@@ -81,6 +81,18 @@ class TimeBlockControllerIT {
         return (Map<String, Object>) response.bodyTo(Map.class);
     }
 
+    private String createActivity(String name, int estimatedDurationMinutes) {
+        ApiResponse created = post("/api/activities",
+                Map.of("name", name, "estimatedDurationMinutes", estimatedDurationMinutes, "priority", "MEDIUM", "category", "sport"));
+        return (String) created.body().get("id");
+    }
+
+    private String planFragment(String activityId, LocalDate day, String startTime, String endTime) {
+        ApiResponse created = post("/api/days/" + day + "/blocks",
+                Map.of("type", "PLANNED_ACTIVITY", "startTime", startTime, "endTime", endTime, "activityId", activityId));
+        return (String) created.body().get("id");
+    }
+
     // --- tests ------------------------------------------------------------
 
     @Test
@@ -222,5 +234,103 @@ class TimeBlockControllerIT {
 
         assertThat(response.status()).isEqualTo(404);
         assertThat(response.body()).containsEntry("reason", "DAY_NOT_REACHABLE");
+    }
+
+    // --- US2: same-activity, same-day merge via edit -----------------------
+
+    @Test
+    void editingAFragmentToTouchAnotherSameActivityFragmentMergesThem() {
+        String activityId = createActivity("Course a pied", 45);
+        planFragment(activityId, TODAY, "07:00", "07:20");
+        String second = planFragment(activityId, TODAY, "07:40", "08:00");
+
+        ApiResponse edited = put("/api/blocks/" + second, Map.of("startTime", "07:20", "endTime", "08:00"));
+
+        assertThat(edited.status()).isEqualTo(200);
+        assertThat(edited.body()).containsEntry("startTime", "07:00").containsEntry("endTime", "08:00");
+
+        ApiResponse day = get("/api/days/" + TODAY);
+        assertThat((List<?>) day.body().get("blocks")).hasSize(1);
+    }
+
+    @Test
+    void editingAFragmentBetweenTwoOthersMergesAllThreeInOneOperation() {
+        String activityId = createActivity("Course a pied", 45);
+        planFragment(activityId, TODAY, "07:00", "07:20");
+        planFragment(activityId, TODAY, "07:40", "08:00");
+        String middle = planFragment(activityId, TODAY, "07:25", "07:35");
+
+        ApiResponse edited = put("/api/blocks/" + middle, Map.of("startTime", "07:20", "endTime", "07:40"));
+
+        assertThat(edited.status()).isEqualTo(200);
+        assertThat(edited.body()).containsEntry("startTime", "07:00").containsEntry("endTime", "08:00");
+
+        ApiResponse day = get("/api/days/" + TODAY);
+        assertThat((List<?>) day.body().get("blocks")).hasSize(1);
+    }
+
+    @Test
+    void editOverlapWithADifferentActivitysFragmentIsStillRejected() {
+        String activityId = createActivity("Course a pied", 45);
+        String otherActivityId = createActivity("Reading", 30);
+        String fragment = planFragment(activityId, TODAY, "09:00", "09:30");
+        planFragment(otherActivityId, TODAY, "10:00", "10:30");
+
+        ApiResponse response = put("/api/blocks/" + fragment, Map.of("startTime", "09:00", "endTime", "10:15"));
+
+        assertThat(response.status()).isEqualTo(409);
+        assertThat(response.body()).containsEntry("reason", "TIME_BLOCK_OVERLAP");
+    }
+
+    // --- US4: fragment-scope deletion ---------------------------------------
+
+    @Test
+    void deletingTheOnlyFragmentOfADayNeedsNoScope() {
+        String activityId = createActivity("Course a pied", 45);
+        String fragment = planFragment(activityId, TODAY, "07:00", "07:30");
+
+        ApiResponse response = delete("/api/blocks/" + fragment);
+
+        assertThat(response.status()).isEqualTo(204);
+    }
+
+    @Test
+    void deletingWithScopeSelfRemovesOnlyThatFragment() {
+        String activityId = createActivity("Course a pied", 45);
+        String first = planFragment(activityId, TODAY, "07:00", "07:20");
+        planFragment(activityId, TODAY, "18:00", "18:25");
+
+        ApiResponse response = delete("/api/blocks/" + first + "?scope=self");
+
+        assertThat(response.status()).isEqualTo(204);
+        ApiResponse day = get("/api/days/" + TODAY);
+        assertThat((List<?>) day.body().get("blocks")).hasSize(1);
+    }
+
+    @Test
+    void deletingWithScopeActivityDayRemovesEveryFragmentOfThatActivityThatDay() {
+        String activityId = createActivity("Course a pied", 45);
+        String first = planFragment(activityId, TODAY, "07:00", "07:20");
+        planFragment(activityId, TODAY, "18:00", "18:25");
+        planFragment(activityId, TODAY.plusDays(1), "07:00", "07:20");
+
+        ApiResponse response = delete("/api/blocks/" + first + "?scope=activityDay");
+
+        assertThat(response.status()).isEqualTo(204);
+        ApiResponse day = get("/api/days/" + TODAY);
+        assertThat((List<?>) day.body().get("blocks")).isEmpty();
+        ApiResponse nextDay = get("/api/days/" + TODAY.plusDays(1));
+        assertThat((List<?>) nextDay.body().get("blocks")).hasSize(1);
+    }
+
+    @Test
+    void invalidScopeValueReturns400() {
+        String activityId = createActivity("Course a pied", 45);
+        String fragment = planFragment(activityId, TODAY, "07:00", "07:30");
+
+        ApiResponse response = delete("/api/blocks/" + fragment + "?scope=bogus");
+
+        assertThat(response.status()).isEqualTo(400);
+        assertThat(response.body()).containsEntry("reason", "INVALID_REQUEST");
     }
 }

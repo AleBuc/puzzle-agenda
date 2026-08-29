@@ -1,25 +1,24 @@
 package alebuc.puzzleagenda.application.activity;
 
 import alebuc.puzzleagenda.domain.activity.Activity;
-import alebuc.puzzleagenda.domain.exception.ActivityCurrentlyPlannedException;
+import alebuc.puzzleagenda.domain.exception.ActivityHasPlannedFragmentsException;
 import alebuc.puzzleagenda.domain.exception.ActivityNotFoundException;
 import alebuc.puzzleagenda.domain.port.ActivityRepository;
 import alebuc.puzzleagenda.domain.port.TimeBlockRepository;
 import alebuc.puzzleagenda.domain.timeblock.TimeBlock;
 
+import java.time.LocalDate;
+import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
- * Deletes a backlog activity. If it is currently planned (has a scheduled
- * {@code TimeBlock}), deletion requires {@code confirm=true} and also
- * removes that block (FR-004, FR-005).
- *
- * <p>Built to this final, T053-extended shape directly rather than staged
- * behind a simpler T041-only version: US2 and US3 were implemented in the
- * same pass, so a temporarily-incomplete confirm/cascade flow (which would
- * hit the {@code time_block.activity_id} foreign key constraint on delete)
- * would have served no purpose.
+ * Deletes a backlog activity. If it has one or more planned fragments,
+ * across any day, deletion requires {@code confirm=true} and cascades to
+ * every one of them (FR-016) — an activity may now have several
+ * concurrent fragments (feature 002), not just one.
  */
 public final class DeleteActivity {
 
@@ -34,12 +33,15 @@ public final class DeleteActivity {
     public void execute(UUID id, boolean confirm) {
         Activity activity = activityRepository.findById(id)
                 .orElseThrow(() -> new ActivityNotFoundException(id));
+        Objects.requireNonNull(activity, "activity must not be null");
 
-        if (activity.isPlanned()) {
+        List<TimeBlock> fragments = timeBlockRepository.findByActivityId(id);
+        if (!fragments.isEmpty()) {
             if (!confirm) {
-                throw new ActivityCurrentlyPlannedException(id);
+                Set<LocalDate> days = fragments.stream().map(TimeBlock::day).collect(Collectors.toSet());
+                throw new ActivityHasPlannedFragmentsException(id, fragments.size(), days.size());
             }
-            timeBlockRepository.findByActivityId(id).map(TimeBlock::id).ifPresent(timeBlockRepository::deleteById);
+            fragments.forEach(fragment -> timeBlockRepository.deleteById(fragment.id()));
         }
 
         activityRepository.deleteById(id);

@@ -5,7 +5,7 @@ import { apiClient, ApiError } from '../api/client'
 import { resolveErrorMessage, GENERIC_ERROR_MESSAGE } from '../api/errorMessages'
 import { useDaySchedule } from '../composables/useDaySchedule'
 import { shiftIsoDate } from '../date-utils'
-import DayTimeline from '../components/DayTimeline.vue'
+import DayGrid from '../components/DayGrid.vue'
 
 const props = defineProps({
   date: { type: String, required: true },
@@ -191,7 +191,7 @@ function cancelFragmentDelete() {
 
     <p v-if="loading">Loading…</p>
     <p v-else-if="error">Could not load this day.</p>
-    <DayTimeline v-else :blocks="day?.blocks ?? []" @edit="startEdit" @delete="handleDelete" />
+    <DayGrid v-else :date="date" :blocks="day?.blocks ?? []" />
 
     <div v-if="pendingFragmentDelete" class="day-view__confirm">
       <p>

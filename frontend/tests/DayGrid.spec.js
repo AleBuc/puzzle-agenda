@@ -12,6 +12,11 @@ const dayGridSource = readFileSync(
   'utf-8',
 )
 
+const gridBlockSource = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), '../src/components/GridBlock.vue'),
+  'utf-8',
+)
+
 // jsdom does not apply component <style> blocks (no layout/CSSOM engine), so
 // a real getComputedStyle assertion can't see the height/max-height conflict
 // that caused the original bug. Reading the rule bodies out of the source
@@ -20,9 +25,11 @@ const dayGridSource = readFileSync(
 // happened before this fix (`.day-grid` carried both `height: 1440px` and
 // `max-height: 70vh` — max-height always wins that conflict, so the box, and
 // every block positioned as a percentage of it, was compressed to ~484px).
-function cssRuleBody(selector) {
+// The same technique is used further below for the grid's stacking order,
+// split across DayGrid.vue and GridBlock.vue.
+function cssRuleBody(selector, source = dayGridSource) {
   const escaped = selector.replace(/[.]/g, '\\.')
-  const match = dayGridSource.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`))
+  const match = source.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`))
   return match ? match[1] : null
 }
 
@@ -290,6 +297,49 @@ describe('DayGrid', () => {
       await wrapper.trigger('focus')
       expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled()
       wrapper.unmount()
+    })
+  })
+
+  describe('stacking order (regression: block z-index hiding the keyboard cursor and now-line)', () => {
+    // The grid's stacking order is a 3-level design decision (see
+    // research.md), not a per-element tweak: hour gridlines/labels
+    // (background, no explicit z-index) < blocks (content) < the keyboard
+    // cursor and now-line (position indicators). Blocks must sit above the
+    // background layer so a block starting on the hour fully covers the
+    // hour label instead of visually overlapping it (the earlier
+    // height/max-height fix's regression test). But position indicators
+    // must sit above blocks — an earlier fix put them *below* blocks
+    // instead, which silently made the keyboard cursor (and the now-line)
+    // disappear behind every occupied slot, going blind for keyboard-only
+    // navigation. These two directions were fixed in separate, opposite
+    // z-index changes, which is exactly the kind of regression that a test
+    // asserting the actual ordering (not just "has a z-index") would have
+    // caught the first time.
+    function zIndexOf(selector, source) {
+      const body = cssRuleBody(selector, source)
+      const match = body?.match(/z-index:\s*(\d+)/)
+      return match ? Number(match[1]) : null
+    }
+
+    it('places blocks above the background (hour gridlines/labels) layer', () => {
+      expect(zIndexOf('.grid-block', gridBlockSource)).toBeGreaterThan(0)
+    })
+
+    it('places the keyboard cursor above blocks', () => {
+      const blockZIndex = zIndexOf('.grid-block', gridBlockSource)
+      const cursorZIndex = zIndexOf('.day-grid__cursor')
+      expect(cursorZIndex).toBeGreaterThan(blockZIndex)
+    })
+
+    it('places the now-line above blocks', () => {
+      const blockZIndex = zIndexOf('.grid-block', gridBlockSource)
+      const nowLineZIndex = zIndexOf('.day-grid__now-line')
+      expect(nowLineZIndex).toBeGreaterThan(blockZIndex)
+    })
+
+    it('never lets the cursor or the now-line intercept a click meant for a block or slot underneath', () => {
+      expect(cssRuleBody('.day-grid__cursor')).toMatch(/pointer-events:\s*none/)
+      expect(cssRuleBody('.day-grid__now-line')).toMatch(/pointer-events:\s*none/)
     })
   })
 })

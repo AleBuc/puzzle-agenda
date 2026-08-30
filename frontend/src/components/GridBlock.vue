@@ -16,6 +16,20 @@ function fullDetail(block) {
   return `${block.startTime}–${block.endTime} ${label(block)}`
 }
 
+// Explicit aria-label for every block (FR-002/FR-003 a11y): the accessibility
+// tree was observed reporting an empty name-from-content for a normal
+// (non-short) block despite visible text, so the name is no longer left to
+// browser name-from-content computation — it's set directly here, for both
+// normal and short blocks alike (the --short title tooltip is unaffected).
+function accessibleLabel(positioned) {
+  const block = positioned.block
+  const name = label(block)
+  if (positioned.isContinuationOnly) {
+    return `${name}, continues from previous day until ${block.endTime}`
+  }
+  return `${name}, ${block.startTime} to ${block.endTime}`
+}
+
 function activate() {
   emit('activate', props.positioned.block)
 }
@@ -33,6 +47,7 @@ function activate() {
     ]"
     :style="{ top: `${positioned.topPercent}%`, height: `${positioned.heightPercent}%` }"
     :title="positioned.isVeryShort ? fullDetail(positioned.block) : undefined"
+    :aria-label="accessibleLabel(positioned)"
     role="button"
     tabindex="0"
     @click="activate"

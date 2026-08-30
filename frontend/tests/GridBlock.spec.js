@@ -84,4 +84,31 @@ describe('GridBlock', () => {
     await wrapper.trigger('keydown.space')
     expect(wrapper.emitted('activate')).toHaveLength(2)
   })
+
+  describe('accessible name (regression: empty accessible name on non-short blocks)', () => {
+    it('sets an explicit aria-label on a normal block', () => {
+      const wrapper = mount(GridBlock, { props: { positioned: positioned() } })
+      expect(wrapper.attributes('aria-label')).toBe('Standup, 09:00 to 10:00')
+    })
+
+    it('sets an explicit aria-label on a very short block too, alongside its title tooltip', () => {
+      const wrapper = mount(GridBlock, {
+        props: { positioned: positioned({ isVeryShort: true, heightPercent: 0.35 }) },
+      })
+      expect(wrapper.attributes('aria-label')).toBe('Standup, 09:00 to 10:00')
+      expect(wrapper.attributes('title')).toBeDefined()
+    })
+
+    it('describes a continuation-only (spillover) block as continuing from the previous day', () => {
+      const wrapper = mount(GridBlock, { props: { positioned: positioned({ isContinuationOnly: true }) } })
+      expect(wrapper.attributes('aria-label')).toBe('Standup, continues from previous day until 10:00')
+    })
+
+    it('falls back to the activity name / type in the aria-label the same way the visible label does', () => {
+      const wrapper = mount(GridBlock, {
+        props: { positioned: positioned({ block: { ...positioned().block, name: null, activityName: 'Write report' } }) },
+      })
+      expect(wrapper.attributes('aria-label')).toBe('Write report, 09:00 to 10:00')
+    })
+  })
 })

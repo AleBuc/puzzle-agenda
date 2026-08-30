@@ -1,8 +1,30 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import DayGrid from '../src/components/DayGrid.vue'
 
 const TODAY = '2026-08-29'
+
+const dayGridSource = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), '../src/components/DayGrid.vue'),
+  'utf-8',
+)
+
+// jsdom does not apply component <style> blocks (no layout/CSSOM engine), so
+// a real getComputedStyle assertion can't see the height/max-height conflict
+// that caused the original bug. Reading the rule bodies out of the source
+// directly is what actually catches a regression here: it fails the moment
+// the two properties end up back on the same selector, which is exactly what
+// happened before this fix (`.day-grid` carried both `height: 1440px` and
+// `max-height: 70vh` — max-height always wins that conflict, so the box, and
+// every block positioned as a percentage of it, was compressed to ~484px).
+function cssRuleBody(selector) {
+  const escaped = selector.replace(/[.]/g, '\\.')
+  const match = dayGridSource.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`))
+  return match ? match[1] : null
+}
 
 function block(overrides = {}) {
   return {
@@ -148,6 +170,69 @@ describe('DayGrid', () => {
       const wrapper = mount(DayGrid, { props: { date: '2026-08-30', blocks: [] } })
       await wrapper.find('.day-grid__add-block').trigger('click')
       expect(wrapper.emitted('activate-slot')).toEqual([[{ startTime: '00:00' }]])
+    })
+  })
+
+  describe('scroll viewport vs. coordinate space (regression: height/max-height conflict)', () => {
+    it('gives the day-grid__content element the fixed 1440px coordinate-space height', () => {
+      expect(cssRuleBody('.day-grid__content')).toMatch(/height:\s*1440px/)
+    })
+
+    it('does not also cap that element with max-height (max-height always wins that conflict)', () => {
+      expect(cssRuleBody('.day-grid__content')).not.toMatch(/max-height/)
+    })
+
+    it('keeps the fixed-height max-height off the scrolling viewport element', () => {
+      expect(cssRuleBody('.day-grid')).not.toMatch(/height:\s*1440px/)
+    })
+
+    it('renders the scroll viewport and the coordinate space as two distinct, nested elements', () => {
+      const wrapper = mount(DayGrid, { props: { date: TODAY, blocks: [] } })
+      const scrollEl = wrapper.find('.day-grid').element
+      const contentEl = wrapper.find('.day-grid__content').element
+      expect(contentEl).not.toBe(scrollEl)
+      expect(scrollEl.contains(contentEl)).toBe(true)
+    })
+  })
+
+  describe('click-to-create time computation (regression: scroll-position independence)', () => {
+    // The click listener lives on `.day-grid__content`, not `.day-grid` (the
+    // scrolling viewport around it) — see DayGrid.vue for the full reasoning.
+    // `offsetY` is relative to the padding edge of whatever element the
+    // listener is attached to, so attaching it to the fixed, non-scrolling
+    // content element means the computed time never depends on how far the
+    // viewport has been scrolled. The old code attached this same handler to
+    // the scrolling element itself, so its rect height only reflected the
+    // visible ~70vh window and every click after scrolling landed on the
+    // wrong time. These tests fake `getBoundingClientRect` (jsdom has no
+    // layout engine) and dispatch directly on `.day-grid__content`.
+    function clickAt(contentEl, offsetY) {
+      contentEl.getBoundingClientRect = () => ({ top: 0, left: 0, right: 100, bottom: 1440, width: 100, height: 1440 })
+      const event = new MouseEvent('click', { bubbles: true, cancelable: true })
+      Object.defineProperty(event, 'offsetY', { value: offsetY, configurable: true })
+      contentEl.dispatchEvent(event)
+    }
+
+    it('computes the clicked time from offsetY on the content element, snapped down to the quarter hour', () => {
+      const wrapper = mount(DayGrid, { props: { date: TODAY, blocks: [] }, attachTo: document.body })
+      clickAt(wrapper.find('.day-grid__content').element, 320) // 05:20 -> floors to 05:15
+      expect(wrapper.emitted('activate-slot')).toEqual([[{ startTime: '05:15' }]])
+      wrapper.unmount()
+    })
+
+    it('produces the same time regardless of the scroll viewport\'s scrollTop', () => {
+      const wrapper = mount(DayGrid, { props: { date: TODAY, blocks: [] }, attachTo: document.body })
+      wrapper.find('.day-grid').element.scrollTop = 900
+      clickAt(wrapper.find('.day-grid__content').element, 320)
+      expect(wrapper.emitted('activate-slot')).toEqual([[{ startTime: '05:15' }]])
+      wrapper.unmount()
+    })
+
+    it('does not react to a click dispatched on the scroll viewport itself', () => {
+      const wrapper = mount(DayGrid, { props: { date: TODAY, blocks: [] }, attachTo: document.body })
+      clickAt(wrapper.find('.day-grid').element, 320)
+      expect(wrapper.emitted('activate-slot')).toBeUndefined()
+      wrapper.unmount()
     })
   })
 })

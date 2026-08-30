@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import DayGrid from '../src/components/DayGrid.vue'
 
@@ -232,6 +232,63 @@ describe('DayGrid', () => {
       const wrapper = mount(DayGrid, { props: { date: TODAY, blocks: [] }, attachTo: document.body })
       clickAt(wrapper.find('.day-grid').element, 320)
       expect(wrapper.emitted('activate-slot')).toBeUndefined()
+      wrapper.unmount()
+    })
+
+    it('parks the keyboard cursor on the clicked slot (regression: it used to stay on the current-time default)', async () => {
+      const wrapper = mount(DayGrid, { props: { date: TODAY, blocks: [] }, attachTo: document.body })
+      clickAt(wrapper.find('.day-grid__content').element, 320) // -> 05:15
+      await wrapper.vm.$nextTick()
+      expect(wrapper.find('.day-grid').attributes('aria-label')).toContain('05:15')
+      wrapper.unmount()
+    })
+  })
+
+  describe('scroll-to-cursor on focus (regression: pointer-click focus corrupting the click)', () => {
+    // A re-test found that clicking `.day-grid__content` (not itself
+    // focusable) moves native DOM focus to the nearest focusable ancestor,
+    // `.day-grid` — and this happens on mousedown, BEFORE the click event
+    // fires. The previous version scrolled the keyboard cursor into view on
+    // every focus, including this one: with the grid scrolled to the end of
+    // the day and the cursor parked on the current-time default, that scroll
+    // raced ahead of the click and moved the content out from under the
+    // pointer, so the click's own offsetY read the wrong (already-scrolled)
+    // position — the popup opened pre-filled with roughly the current time
+    // instead of the time actually clicked. `:focus-visible` is the
+    // browser's own signal for "this focus came from the keyboard" (or
+    // another explicit, non-pointer action), which is exactly the
+    // distinction needed: scrolling to the keyboard cursor is a keyboard
+    // behavior and must never be a side effect of a pointer-triggered focus.
+    // jsdom has neither a real `:focus-visible` computation nor a
+    // `scrollIntoView` implementation, so both are stubbed here.
+    let originalScrollIntoView
+
+    beforeEach(() => {
+      originalScrollIntoView = Element.prototype.scrollIntoView
+      Element.prototype.scrollIntoView = vi.fn()
+    })
+
+    afterEach(() => {
+      Element.prototype.scrollIntoView = originalScrollIntoView
+    })
+
+    function stubFocusVisible(el, value) {
+      el.matches = (selector) => (selector === ':focus-visible' ? value : false)
+    }
+
+    it('scrolls the cursor into view on a keyboard-driven focus (:focus-visible true)', async () => {
+      const wrapper = mount(DayGrid, { props: { date: TODAY, blocks: [] }, attachTo: document.body })
+      stubFocusVisible(wrapper.element, true)
+      await wrapper.trigger('focus')
+      expect(Element.prototype.scrollIntoView).toHaveBeenCalled()
+      wrapper.unmount()
+    })
+
+    it('does not scroll on a pointer-triggered focus (:focus-visible false)', async () => {
+      const wrapper = mount(DayGrid, { props: { date: TODAY, blocks: [] }, attachTo: document.body })
+      stubFocusVisible(wrapper.element, false)
+      await wrapper.trigger('focus')
+      expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled()
       wrapper.unmount()
     })
   })

@@ -56,7 +56,10 @@ function body() {
 }
 
 async function openCreatePopup(wrapper) {
-  await wrapper.find('.day-grid').trigger('click')
+  // The click-to-create listener lives on `.day-grid__content` (the day's
+  // fixed-height coordinate space), not `.day-grid` (the scrolling viewport
+  // around it) — see DayGrid.vue for why that split matters.
+  await wrapper.find('.day-grid__content').trigger('click')
   await nextTick()
   await flushPromises()
 }

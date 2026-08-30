@@ -58,6 +58,11 @@ function handleBackgroundClick(event) {
   const rect = event.currentTarget.getBoundingClientRect()
   const percent = rect.height > 0 ? (event.offsetY / rect.height) * 100 : 0
   const minutes = snapDownToQuarterHour(percentToMinutes(percent))
+  // Park the keyboard cursor on the slot just clicked (see shouldScrollOnFocus
+  // below for why): this is the user's most recent point of action, so the
+  // next legitimate keyboard focus should reveal it, not whatever the
+  // current-time default happened to be.
+  focusedMinutes.value = minutes
   emit('activate-slot', { startTime: formatMinutes(minutes) })
 }
 
@@ -110,6 +115,9 @@ watch(
   },
 )
 
+// Arrow-key scrolling stays unconditional here, unlike handleGridFocus below:
+// it's driven directly by the keydown itself, not by a focus event, so it
+// can never fire as a side effect of a pointer click.
 async function handleGridKeydown(event) {
   if (event.key === 'ArrowDown') {
     event.preventDefault()
@@ -129,8 +137,26 @@ async function handleGridKeydown(event) {
 
 const hasGridFocus = ref(false)
 
+// A pointer click on `.day-grid__content` (not itself focusable) moves native
+// DOM focus to the nearest focusable ancestor, `.day-grid` — and this happens
+// on mousedown, BEFORE the click event fires. A prior version scrolled the
+// keyboard cursor into view on every focus, including this one; proven by a
+// re-test, that raced ahead of the click: grid scrolled to the end of the
+// day, click near the top of the visible area, and the viewport snapped back
+// toward the cursor's current-time default before the click's own offsetY
+// was read, so the popup opened with roughly the current time instead of the
+// time actually clicked. Scrolling to the keyboard cursor is a keyboard
+// behavior and must never fire as a side effect of a pointer-triggered focus.
+// `:focus-visible` is the browser's own heuristic for exactly that
+// distinction (keyboard/explicit focus vs. a mouse click), so it's used
+// here instead of a hand-rolled pointerdown flag.
+function shouldScrollOnFocus(el) {
+  return el?.matches?.(':focus-visible') ?? false
+}
+
 async function handleGridFocus() {
   hasGridFocus.value = true
+  if (!shouldScrollOnFocus(gridEl.value)) return
   await nextTick()
   scrollCursorIntoView()
 }

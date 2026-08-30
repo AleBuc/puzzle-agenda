@@ -4,8 +4,10 @@ import { useRouter } from 'vue-router'
 import { apiClient, ApiError } from '../api/client'
 import { resolveErrorMessage, GENERIC_ERROR_MESSAGE } from '../api/errorMessages'
 import { useDaySchedule } from '../composables/useDaySchedule'
+import { useBlockDraft } from '../composables/useBlockDraft'
 import { shiftIsoDate } from '../date-utils'
-import DayTimeline from '../components/DayTimeline.vue'
+import DayGrid from '../components/DayGrid.vue'
+import BlockPopup from '../components/BlockPopup.vue'
 
 const props = defineProps({
   date: { type: String, required: true },
@@ -34,11 +36,6 @@ async function loadDayActivities() {
 loadDayActivities()
 watch(() => props.date, loadDayActivities)
 
-function activityOptionLabel(activity) {
-  const remaining = `${activity.remainingMinutesForDay}min left`
-  return activity.dayStatus === 'PLANNED' ? `${activity.name} (fully planned, ${remaining})` : `${activity.name} (${remaining})`
-}
-
 const previousDate = computed(() => shiftIsoDate(props.date, -1))
 const nextDate = computed(() => shiftIsoDate(props.date, 1))
 const canGoPrevious = computed(() => !horizon.value?.day1 || previousDate.value >= horizon.value.day1)
@@ -51,8 +48,13 @@ function goToDate(date) {
 // Left/Right arrow keys navigate days (bounded by the horizon, same as the
 // buttons), as long as focus isn't inside a form control that itself uses
 // arrow keys (text/time inputs, selects) — otherwise this would hijack
-// normal editing of the add/edit-block form below.
+// normal editing inside an open popup. Also suspended entirely while a popup
+// is open (FR-019/clarify Q1): the viewed day must not change out from under
+// an open dialog, and Reka's focus trap doesn't itself stop this page-level
+// listener from firing.
 function handleKeydown(event) {
+  if (popupState.value !== null) return
+
   const target = event.target
   const isFormControl = target && ['INPUT', 'SELECT', 'TEXTAREA'].includes(target.tagName)
   if (isFormControl) return
@@ -69,99 +71,90 @@ function handleKeydown(event) {
 onMounted(() => window.addEventListener('keydown', handleKeydown))
 onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
 
-const emptyForm = () => ({ type: 'CONSTRAINED', startTime: '', endTime: '', name: '', activityId: '' })
-const form = ref(emptyForm())
-const formError = ref(null)
-const editingBlockId = ref(null)
+// Popup (creation from User Story 2, details/edit/delete from User Story 3):
+// PopupState (data-model.md) drives BlockPopup as a single reactive value, so
+// only one popup is ever open (FR-020). A same-day creation draft
+// (data-model.md BlockDraft) survives a backdrop-click dismissal so a slot
+// mis-click doesn't lose what was already filled in.
+const popupState = ref(null)
+const { draft, captureDraft, clearDraft } = useBlockDraft(dateRef)
+const popupError = ref(null)
 
-async function submitForm() {
-  formError.value = null
-  try {
-    if (editingBlockId.value) {
-      await editBlock(editingBlockId.value, {
-        startTime: form.value.startTime,
-        endTime: form.value.endTime,
-        name: form.value.name || null,
-      })
-      await loadDayActivities()
-    } else if (form.value.type === 'PLANNED_ACTIVITY') {
-      await createBlock({
-        type: 'PLANNED_ACTIVITY',
-        startTime: form.value.startTime,
-        endTime: form.value.endTime,
-        activityId: form.value.activityId,
-      })
-      await loadDayActivities()
-    } else {
-      await createBlock({
-        type: form.value.type,
-        startTime: form.value.startTime,
-        endTime: form.value.endTime,
-        name: form.value.name || null,
-      })
-    }
-    editingBlockId.value = null
-    form.value = emptyForm()
-  } catch (err) {
-    formError.value = err instanceof ApiError ? resolveErrorMessage(err.reason) : GENERIC_ERROR_MESSAGE
-  }
+function openCreatePopup({ startTime }) {
+  popupError.value = null
+  popupState.value = { mode: 'create', startTime }
 }
 
-function startEdit(block) {
-  editingBlockId.value = block.id
-  formError.value = null
-  form.value = { type: block.type, startTime: block.startTime, endTime: block.endTime, name: block.name || '' }
-}
-
-function cancelEdit() {
-  editingBlockId.value = null
-  formError.value = null
-  form.value = emptyForm()
-}
-
-// Deleting a fragment (US4): if it's the only fragment of its activity on
-// this day, delete immediately; otherwise offer a choice between this
-// fragment only and every fragment of that activity today (FR-014-FR-015).
-const pendingFragmentDelete = ref(null)
-
+// A block is one of several same-day fragments of the same activity when
+// more than one block on this day shares its activityId (FR-013); used both
+// to open the details popup with the right sameDayFragmentCount and, before
+// that, by DayGrid indirectly through the block data itself.
 function sameActivityFragmentCount(block) {
   if (block.type !== 'PLANNED_ACTIVITY') return 1
   return (day.value?.blocks ?? []).filter((b) => b.activityId === block.activityId).length
 }
 
-async function handleDelete(block) {
-  if (sameActivityFragmentCount(block) > 1) {
-    pendingFragmentDelete.value = block
-    return
+function openDetailsPopup(block) {
+  popupError.value = null
+  popupState.value = {
+    mode: 'details',
+    block,
+    readOnly: block.startsPreviousDay,
+    sameDayFragmentCount: sameActivityFragmentCount(block),
   }
-  formError.value = null
+}
+
+async function handleSubmitCreate(payload) {
+  popupError.value = null
   try {
-    await deleteBlock(block.id)
+    await createBlock(payload)
     await loadDayActivities()
+    popupState.value = null
+    clearDraft()
   } catch (err) {
-    formError.value = err instanceof ApiError ? resolveErrorMessage(err.reason) : GENERIC_ERROR_MESSAGE
+    popupError.value = err instanceof ApiError ? resolveErrorMessage(err.reason) : GENERIC_ERROR_MESSAGE
+  }
+}
+
+async function handleSubmitEdit(payload) {
+  popupError.value = null
+  try {
+    await editBlock(payload.id, { startTime: payload.startTime, endTime: payload.endTime, name: payload.name })
+    await loadDayActivities()
+    popupState.value = null
+  } catch (err) {
+    popupError.value = err instanceof ApiError ? resolveErrorMessage(err.reason) : GENERIC_ERROR_MESSAGE
+  }
+}
+
+async function handleSubmitDelete({ id, scope }) {
+  popupError.value = null
+  try {
+    await deleteBlock(id, scope)
+    await loadDayActivities()
+    popupState.value = null
+  } catch (err) {
+    // Mirrors the edit/create failure pattern: show the mapped error and keep
+    // the popup open (FR-016) rather than closing it mid-error, which would
+    // hide the very message just shown. The grid behind it still refreshes
+    // to the real state (e.g. the block is already gone if this was a
+    // stale-state 404), even while the popup keeps showing its last-known info.
+    popupError.value = err instanceof ApiError ? resolveErrorMessage(err.reason) : GENERIC_ERROR_MESSAGE
     await load()
     await loadDayActivities()
   }
 }
 
-async function confirmFragmentDelete(scope) {
-  if (!pendingFragmentDelete.value) return
-  formError.value = null
-  try {
-    await deleteBlock(pendingFragmentDelete.value.id, scope)
-    pendingFragmentDelete.value = null
-    await loadDayActivities()
-  } catch (err) {
-    formError.value = err instanceof ApiError ? resolveErrorMessage(err.reason) : GENERIC_ERROR_MESSAGE
-    pendingFragmentDelete.value = null
-    await load()
-    await loadDayActivities()
+function handlePopupClosed({ reason, snapshot }) {
+  if (reason === 'backdrop' && snapshot) {
+    captureDraft(snapshot)
+  } else {
+    clearDraft()
   }
-}
-
-function cancelFragmentDelete() {
-  pendingFragmentDelete.value = null
+  popupState.value = null
+  if (reason === 'navigate-to-start-day') {
+    goToDate(shiftIsoDate(props.date, -1))
+  }
 }
 </script>
 
@@ -191,61 +184,25 @@ function cancelFragmentDelete() {
 
     <p v-if="loading">Loading…</p>
     <p v-else-if="error">Could not load this day.</p>
-    <DayTimeline v-else :blocks="day?.blocks ?? []" @edit="startEdit" @delete="handleDelete" />
+    <DayGrid
+      v-else
+      :date="date"
+      :blocks="day?.blocks ?? []"
+      @activate-slot="openCreatePopup"
+      @activate-block="openDetailsPopup"
+    />
 
-    <div v-if="pendingFragmentDelete" class="day-view__confirm">
-      <p>
-        "{{ pendingFragmentDelete.activityName }}" has more than one fragment today. Delete just
-        this one, or every fragment of this activity today?
-      </p>
-      <button type="button" @click="confirmFragmentDelete('self')">Delete this fragment only</button>
-      <button type="button" @click="confirmFragmentDelete('activityDay')">
-        Delete all fragments of this activity today
-      </button>
-      <button type="button" @click="cancelFragmentDelete">Cancel</button>
-    </div>
-
-    <form class="day-view__form" @submit.prevent="submitForm">
-      <h2>{{ editingBlockId ? 'Edit block' : 'Add a block' }}</h2>
-      <label>
-        Type
-        <select
-          v-model="form.type"
-          :disabled="!!editingBlockId"
-          :title="editingBlockId ? 'Type cannot be changed after creation' : undefined"
-        >
-          <option value="ROUTINE">Routine</option>
-          <option value="CONSTRAINED">Constrained</option>
-          <option value="PLANNED_ACTIVITY">Planned activity</option>
-        </select>
-      </label>
-      <label>
-        Start
-        <input v-model="form.startTime" type="time" step="300" required />
-      </label>
-      <label>
-        End
-        <input v-model="form.endTime" type="time" step="300" required />
-      </label>
-      <label v-if="form.type === 'PLANNED_ACTIVITY' && !editingBlockId">
-        Activity
-        <select v-model="form.activityId" required>
-          <option value="" disabled>Select a backlog activity…</option>
-          <option v-for="activity in dayActivities" :key="activity.id" :value="activity.id">
-            {{ activityOptionLabel(activity) }}
-          </option>
-        </select>
-      </label>
-      <label v-else>
-        Name
-        <input v-model="form.name" type="text" />
-      </label>
-      <div class="day-view__form-actions">
-        <button type="submit">{{ editingBlockId ? 'Save' : 'Add block' }}</button>
-        <button v-if="editingBlockId" type="button" @click="cancelEdit">Cancel</button>
-      </div>
-      <p v-if="formError" class="day-view__error">{{ formError }}</p>
-    </form>
+    <BlockPopup
+      :popup-state="popupState"
+      :day-activities="dayActivities"
+      :draft="draft"
+      :error-message="popupError"
+      :date="date"
+      @submit-create="handleSubmitCreate"
+      @submit-edit="handleSubmitEdit"
+      @submit-delete="handleSubmitDelete"
+      @closed="handlePopupClosed"
+    />
   </section>
 </template>
 
@@ -257,32 +214,4 @@ function cancelFragmentDelete() {
   gap: 1rem;
 }
 
-.day-view__form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  margin-top: 1.5rem;
-  max-width: 20rem;
-}
-
-.day-view__form-actions {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.day-view__error {
-  color: #c33;
-}
-
-.day-view__confirm {
-  margin-top: 1rem;
-  padding: 0.75rem;
-  border: 1px solid #d1555c;
-  border-radius: 0.25rem;
-  background: #fdecec;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 0.5rem;
-}
 </style>

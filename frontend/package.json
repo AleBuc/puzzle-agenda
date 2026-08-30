@@ -1,7 +1,7 @@
 {
   "name": "frontend",
   "private": true,
-  "version": "0.1.1-rc.4",
+  "version": "0.1.1-rc.5",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "reka-ui": "^2.10.4",
     "vue": "^3.5.40",
     "vue-router": "^4.5.0"
   },

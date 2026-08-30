@@ -255,13 +255,24 @@ function activateAddBlock() {
   color: #888;
 }
 
+/* Position indicators (now-line, cursor below) are the top tier of the
+   grid's 3-level stacking order — see research.md and the comment on
+   .grid-block's z-index in GridBlock.vue for the full picture. They sit
+   above blocks (z-index: 3) so a re-test regression can't recur: a block
+   opaquely covering the now-line or the keyboard cursor whenever they
+   coincide made both effectively invisible on any occupied slot, which for
+   the cursor meant keyboard navigation went blind over every block. Both
+   are also pointer-events: none, so as thin overlays they never intercept
+   a click meant for the block or slot underneath — confirmed by
+   elementFromPoint returning the block, not the overlay, at that point. */
 .day-grid__now-line {
   position: absolute;
   left: 0;
   right: 0;
   height: 2px;
   background: #d1555c;
-  z-index: 2;
+  z-index: 5;
+  pointer-events: none;
 }
 
 .day-grid__add-block {
@@ -278,7 +289,14 @@ function activateAddBlock() {
   right: 0;
   height: 2px;
   background: #4d78ad;
-  z-index: 2;
+  z-index: 5;
   pointer-events: none;
+  /* A thin line can still be hard to pick out against a block's own
+     background color, whatever that color is (routine/constrained/planned
+     each differ) — box-shadow: 0 0 0 1px paints a solid halo around the
+     shape without adding to its layout size, guaranteeing contrast against
+     any of them, unlike a border (which is already used for block edges
+     elsewhere and would need per-block-color tuning to stay visible). */
+  box-shadow: 0 0 0 1px #fff;
 }
 </style>

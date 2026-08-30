@@ -76,11 +76,17 @@ function activate() {
   border-left: 3px solid;
   font-size: 0.85rem;
   cursor: pointer;
-  /* Above the hour gridlines/labels and the now-line/cursor (z-index: 2 in
-     DayGrid.vue), so a block starting exactly on the hour — or coinciding
-     with either line — fully covers their text instead of visually
-     overlapping it, regardless of DOM order. Below the sticky "Add block"
-     button (z-index: 4). */
+  /* The grid's stacking order is a 3-tier design decision, not a local
+     tweak (see research.md): hour gridlines/labels (background, no
+     explicit stacking) sit below blocks (content, here), which in turn sit
+     below the keyboard cursor and now-line (position indicators, styled in
+     DayGrid.vue with a higher stacking value than this rule's). This layer
+     needs to be above the background layer, so a block starting exactly on
+     the hour fully covers the hour label instead of visually overlapping
+     it — but below the position-indicator layer, so neither the keyboard
+     cursor nor the current-time line ever disappears behind an occupied
+     slot (both render as thin, pointer-events: none overlays specifically
+     so they never have to compete with a block for clicks either). */
   z-index: 3;
 }
 

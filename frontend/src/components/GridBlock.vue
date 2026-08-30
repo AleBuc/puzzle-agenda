@@ -76,6 +76,12 @@ function activate() {
   border-left: 3px solid;
   font-size: 0.85rem;
   cursor: pointer;
+  /* Above the hour gridlines/labels and the now-line/cursor (z-index: 2 in
+     DayGrid.vue), so a block starting exactly on the hour — or coinciding
+     with either line — fully covers their text instead of visually
+     overlapping it, regardless of DOM order. Below the sticky "Add block"
+     button (z-index: 4). */
+  z-index: 3;
 }
 
 .grid-block--routine {

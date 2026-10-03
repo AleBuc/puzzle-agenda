@@ -157,9 +157,9 @@ function cancelDelete() {
 .backlog-view__confirm {
   margin-top: 1rem;
   padding: 0.75rem;
-  border: 1px solid #d1555c;
+  border: 1px solid var(--constrained-edge);
   border-radius: 0.25rem;
-  background: #fdecec;
+  background: var(--constrained-fill);
 }
 
 .backlog-view__form {
@@ -176,6 +176,6 @@ function cancelDelete() {
 }
 
 .backlog-view__error {
-  color: #c33;
+  color: var(--danger);
 }
 </style>

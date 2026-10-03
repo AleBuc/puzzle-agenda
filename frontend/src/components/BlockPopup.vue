@@ -299,7 +299,7 @@ function handleBackdrop() {
 .block-popup__overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--overlay);
 }
 
 .block-popup__content {
@@ -307,7 +307,10 @@ function handleBackdrop() {
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  background: #1b1b1f;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
   border-radius: 0.4rem;
   padding: 1.25rem;
   min-width: 20rem;
@@ -328,7 +331,7 @@ function handleBackdrop() {
 }
 
 .block-popup__error {
-  color: #c33;
+  color: var(--danger);
 }
 
 .block-popup__visually-hidden {

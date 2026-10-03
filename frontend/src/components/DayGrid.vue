@@ -236,7 +236,7 @@ function activateAddBlock() {
 .day-grid__content {
   position: relative;
   height: 1440px;
-  border-top: 1px solid #333;
+  border-top: 1px solid var(--grid-edge);
 }
 
 .day-grid__hour-row {
@@ -244,7 +244,7 @@ function activateAddBlock() {
   left: 0;
   right: 0;
   height: 0;
-  border-top: 1px solid #2a2a2a;
+  border-top: 1px solid var(--grid-line);
 }
 
 .day-grid__hour-label {
@@ -252,7 +252,7 @@ function activateAddBlock() {
   top: 0.15rem;
   left: 0.25rem;
   font-size: 0.7rem;
-  color: #888;
+  color: var(--text-muted);
 }
 
 /* Position indicators (now-line, cursor below) are the top tier of the
@@ -270,7 +270,7 @@ function activateAddBlock() {
   left: 0;
   right: 0;
   height: 2px;
-  background: #d1555c;
+  background: var(--now-line);
   z-index: 5;
   pointer-events: none;
 }
@@ -288,7 +288,7 @@ function activateAddBlock() {
   left: 0;
   right: 0;
   height: 2px;
-  background: #4d78ad;
+  background: var(--accent);
   z-index: 5;
   pointer-events: none;
   /* A thin line can still be hard to pick out against a block's own
@@ -297,6 +297,6 @@ function activateAddBlock() {
      shape without adding to its layout size, guaranteeing contrast against
      any of them, unlike a border (which is already used for block edges
      elsewhere and would need per-block-color tuning to stay visible). */
-  box-shadow: 0 0 0 1px #fff;
+  box-shadow: 0 0 0 1px var(--bg);
 }
 </style>

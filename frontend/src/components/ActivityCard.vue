@@ -50,18 +50,18 @@ const expanded = ref(false)
 }
 
 .activity-card--low {
-  border-color: #999;
-  background: #f5f5f5;
+  border-color: var(--priority-low-edge);
+  background: var(--priority-low-fill);
 }
 
 .activity-card--medium {
-  border-color: #d1a13a;
-  background: #fbf3e2;
+  border-color: var(--priority-medium-edge);
+  background: var(--priority-medium-fill);
 }
 
 .activity-card--high {
-  border-color: #d1555c;
-  background: #fdecec;
+  border-color: var(--priority-high-edge);
+  background: var(--priority-high-fill);
 }
 
 .activity-card__name {
@@ -69,13 +69,13 @@ const expanded = ref(false)
 }
 
 .activity-card__meta {
-  color: #666;
+  color: var(--text-muted);
   flex: 1;
 }
 
 .activity-card__status {
   font-size: 0.85em;
-  color: #4d78ad;
+  color: var(--accent);
   background: none;
   border: none;
   cursor: pointer;
@@ -88,7 +88,7 @@ const expanded = ref(false)
   margin: 0;
   padding-left: 1.25rem;
   font-size: 0.85em;
-  color: #555;
+  color: var(--text-muted);
 }
 
 .activity-card__actions {

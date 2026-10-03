@@ -20,6 +20,6 @@ import { todayIsoDate } from './date-utils'
   display: flex;
   gap: 1rem;
   padding: 0.75rem 1rem;
-  border-bottom: 1px solid #ddd;
+  border-bottom: 1px solid var(--border);
 }
 </style>

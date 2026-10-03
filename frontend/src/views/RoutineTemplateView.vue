@@ -77,7 +77,7 @@ async function handleDelete(entry) {
 
 <style scoped>
 .routine-template-view__hint {
-  color: #666;
+  color: var(--text-muted);
   max-width: 32rem;
 }
 
@@ -96,8 +96,8 @@ async function handleDelete(entry) {
   gap: 0.75rem;
   padding: 0.5rem 0.75rem;
   border-radius: 0.25rem;
-  border-left: 4px solid #4a9d6e;
-  background: #eef8f2;
+  border-left: 4px solid var(--routine-edge);
+  background: var(--routine-fill);
 }
 
 .routine-entry-card__name {
@@ -110,6 +110,6 @@ async function handleDelete(entry) {
 }
 
 .routine-template-view__error {
-  color: #c33;
+  color: var(--danger);
 }
 </style>

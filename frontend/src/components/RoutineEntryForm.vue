@@ -62,7 +62,7 @@ function submit() {
 
 .routine-entry-form__hint {
   font-size: 0.85em;
-  color: #666;
+  color: var(--text-muted);
   margin: 0;
 }
 

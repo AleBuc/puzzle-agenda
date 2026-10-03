@@ -91,18 +91,18 @@ function activate() {
 }
 
 .grid-block--routine {
-  border-color: #4a9d6e;
-  background: #eef8f2;
+  border-color: var(--routine-edge);
+  background: var(--routine-fill);
 }
 
 .grid-block--constrained {
-  border-color: #d1555c;
-  background: #fdecec;
+  border-color: var(--constrained-edge);
+  background: var(--constrained-fill);
 }
 
 .grid-block--planned_activity {
-  border-color: #4d78ad;
-  background: #eef3fb;
+  border-color: var(--planned-edge);
+  background: var(--planned-fill);
 }
 
 .grid-block--continuation {
@@ -116,7 +116,7 @@ function activate() {
 }
 
 .grid-block__time {
-  color: #555;
+  color: var(--text-muted);
   white-space: nowrap;
 }
 

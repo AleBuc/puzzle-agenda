@@ -296,14 +296,21 @@ function handleBackdrop() {
 </template>
 
 <style scoped>
+/* The popup is portaled to <body>, so its stacking competes directly with
+   the day grid's own tiers (blocks 3, "+ Add block" 4, cursor and now-line
+   5, see DayGrid.vue/GridBlock.vue). Without an explicit z-index here, every
+   block under the popup's area was painted over both the backdrop and the
+   dialog, hiding its fields and buttons. Both sit above all grid tiers. */
 .block-popup__overlay {
   position: fixed;
   inset: 0;
+  z-index: 10;
   background: var(--overlay);
 }
 
 .block-popup__content {
   position: fixed;
+  z-index: 11;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);

@@ -18,6 +18,7 @@ jobs:
   # must set backend/pom.xml + frontend/package.json + package-lock.json
   # to main's current version with the rc number incremented by 1 — or,
   # on a release/X.Y.Z branch, to the bare version the branch name encodes.
+  # hotfix/* branches are exempt from the rc-bump rule.
   # Deliberately no `paths:` filter: the rule applies to every PR
   # regardless of what it touches, and a required check that's filtered
   # out of some PRs would block their merge button forever.
@@ -65,6 +66,9 @@ jobs:
                 exit 1
               fi
               echo "version-check: release branch $branch correctly set to $pom (main was $main_version)"
+              ;;
+            hotfix/*)
+              echo "version-check: hotfix branch $branch is version-exempt (found $pom, main is $main_version)"
               ;;
             dependabot/*)
               # Dependabot has no knowledge of the rc-bump rule and can't run

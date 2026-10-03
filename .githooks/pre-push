@@ -6,6 +6,11 @@
 # authoritative check is the version-check job in .github/workflows/ci.yml
 # — this hook only exists to give faster local feedback than a CI round trip.
 #
+# A stale rc on the checked-out branch is fixed rather than just reported:
+# the hook runs scripts/bump-rc.sh, commits the result, and stops the push so
+# it can be re-run with that commit. hotfix/* branches are exempt from the
+# rc-bump rule, as in CI.
+#
 # Standard git pre-push hook protocol: reads "<local ref> <local sha>
 # <remote ref> <remote sha>" lines from stdin, one per ref being pushed.
 
@@ -55,6 +60,27 @@ print_release_help() {
   echo "          workflow — hand-editing one is unusual; double check intent." >&2
 }
 
+# Bumps the checked-out branch to the next rc and commits only the version
+# files. The push itself can't be amended from here (git already chose which
+# sha to send), so the caller still fails it and asks for a re-push. Returns
+# non-zero, touching nothing, when the pushed branch isn't the checked-out
+# HEAD or the version files have uncommitted changes.
+auto_bump() {
+  [ "$(git symbolic-ref --quiet --short HEAD)" = "$1" ] || return 1
+  [ "$(git rev-parse HEAD)" = "$2" ] || return 1
+  (
+    cd "$root" || exit 1
+    files="backend/pom.xml $(echo backend/*/pom.xml) frontend/package.json frontend/package-lock.json"
+    # shellcheck disable=SC2086
+    git diff --quiet HEAD -- $files || exit 1
+    # </dev/null: Maven and npm must not consume the hook's ref list on stdin.
+    ./scripts/bump-rc.sh "$remote" </dev/null >&2 || exit 1
+    new=$(read_pom_version backend/pom.xml)
+    # shellcheck disable=SC2086
+    git commit --quiet -m "chore: bump version to $new" -- $files </dev/null >&2
+  )
+}
+
 status=0
 
 while read -r local_ref local_sha remote_ref remote_sha; do
@@ -90,13 +116,21 @@ while read -r local_ref local_sha remote_ref remote_sha; do
         status=1
       fi
       ;;
+    hotfix/*)
+      ;;                                        # exempt from the rc-bump rule
     *)
       want=$(next_rc "$main_version") || {
         echo "pre-push: cannot parse main's version '$main_version' — skipping (CI will verify)" >&2
         continue
       }
       if [ "$pom" != "$want" ]; then
-        print_stale_rc_help "$main_version" "$pom" "$want"
+        if auto_bump "$branch" "$local_sha"; then
+          echo "pre-push: $branch was at $pom (main is $main_version) — bumped and" >&2
+          echo "          committed the version. The push was stopped so that it" >&2
+          echo "          includes that commit: run the same git push again." >&2
+        else
+          print_stale_rc_help "$main_version" "$pom" "$want"
+        fi
         status=1
       fi
       ;;

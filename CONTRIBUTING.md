@@ -12,6 +12,12 @@ it does nothing until you run this script. The authoritative check is the
 `version-check` job in `.github/workflows/ci.yml`, which runs on every PR
 regardless of whether you have the hook installed.
 
+When the branch you push is checked out and its rc is stale, the hook runs
+`scripts/bump-rc.sh` and commits the version files itself, then stops the
+push: run the same `git push` again to send the bump commit along. It only
+reports the problem when the version files have uncommitted changes or the
+pushed branch isn't the one checked out.
+
 ## Versioning
 
 Releases are manual and PR-based (see [Releasing](#releasing-a-new-version)
@@ -92,6 +98,11 @@ greater than main's current version. `version-check` detects this by branch
 name and switches rules accordingly; hand-editing a release branch's version
 is unusual and will very likely fail the check unless it lands on exactly
 the version the branch name promises.
+
+### Hotfix branches
+
+`hotfix/*` branches are exempt from the rc-bump rule: `version-check` and the
+pre-push hook only verify that the version files agree with each other.
 
 ## Commit messages
 

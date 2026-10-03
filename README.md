@@ -141,10 +141,8 @@ The project's full set of non-negotiable principles lives in the [constitution](
 ### Run locally
 
 ```bash
-# 1. Database
-docker run -d --name puzzle-agenda-db \
-  -e POSTGRES_DB=puzzle_agenda -e POSTGRES_USER=puzzle_agenda -e POSTGRES_PASSWORD=puzzle_agenda \
-  -p 5432:5432 postgres:16
+# 1. Database (from the repository root; restarts with Docker, data kept in a volume)
+docker compose up -d --wait
 
 # 2. Backend (from backend/)
 mvn install -DskipTests

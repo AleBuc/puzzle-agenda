@@ -13,7 +13,8 @@ root=$(git rev-parse --show-toplevel)
 cd "$root"
 . "$root/scripts/versions.sh"
 
-git fetch --quiet --no-tags --depth=1 "$remote" main
+# No --depth: a shallow fetch into a full clone truncates its history.
+git fetch --quiet --no-tags "$remote" main
 main_version=$(git show FETCH_HEAD:backend/pom.xml | read_pom_version -)
 
 target=$(next_rc "$main_version") || {

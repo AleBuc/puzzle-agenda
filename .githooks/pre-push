@@ -89,7 +89,9 @@ while read -r local_ref local_sha remote_ref remote_sha; do
   branch=${local_ref#refs/heads/}
   [ "$branch" = "main" ] && continue            # main is never pushed directly by design
 
-  if ! git fetch --quiet --no-tags --depth=1 "$remote" main 2>/dev/null; then
+  # No --depth: a shallow fetch into a full clone truncates its history, which
+  # breaks every later `main...HEAD` diff (architecture-check, merge-base).
+  if ! git fetch --quiet --no-tags "$remote" main 2>/dev/null; then
     echo "pre-push: could not fetch '$remote main' — skipping local version check" >&2
     echo "          (CI's version-check job will still verify this)" >&2
     continue
